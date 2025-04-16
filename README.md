@@ -2,7 +2,7 @@
 
 <h3 align="center">
     Quickly validate DNS servers at scale
-    <a href="DNSanity%3A%20validate%20massive%20lists%20of%20DNS%20resolvers%20at%20scale%20%28for%20recon%20%26%20DNS%20bruteforcing%29%20-%20by%20%40nil0x42&url=https://github.com/nil0x42/dnsanity">
+    <a href="https://twitter.com/intent/tweet?text=DNSanity%3A%20validate%20massive%20lists%20of%20DNS%20resolvers%20at%20scale%20%28for%20recon%20%26%20DNS%20bruteforcing%29%20-%20by%20%40nil0x42&url=https://github.com/nil0x42/dnsanity">
       <img src="https://img.shields.io/twitter/url?label=tweet&logo=twitter&style=social&url=http%3A%2F%2F0" alt="tweet">
     </a>
 </h3>
