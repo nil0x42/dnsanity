@@ -1,0 +1,4 @@
+/custom-tests/*
+/binaries
+coverage.out
+integration/tests/dnsanity_bin
