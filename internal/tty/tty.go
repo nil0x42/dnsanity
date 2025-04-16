@@ -2,12 +2,10 @@ package tty
 
 import (
 	// standard
-	"os"
 	"fmt"
-	"sync"
+	"os"
 	"regexp"
-	"syscall"
-	"unsafe"
+	"sync"
 )
 
 // stripAnsiRegex removes ANSI escape sequences (colors, cursor movements, etc.).
@@ -26,15 +24,14 @@ func IsTTY(f *os.File) bool {
 	if cached, ok := cacheIsTTY.Load(fd); ok {
 		return cached.(bool)
 	}
-    var termios syscall.Termios
-    _, _, err := syscall.Syscall6(
-        syscall.SYS_IOCTL,
-        uintptr(fd),
-        uintptr(syscall.TCGETS),
-        uintptr(unsafe.Pointer(&termios)),
-        0, 0, 0,
-    )
-	isTerminal := err == 0
+	// Use a portable method to check if the file is a terminal
+	// This works on all Unix-like systems including Linux and macOS
+	stat, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	// Check if the file is a character device
+	isTerminal := (stat.Mode() & os.ModeCharDevice) != 0
 	cacheIsTTY.Store(fd, isTerminal)
 	return isTerminal
 }
