@@ -12,9 +12,12 @@ import (
 func ResolveDNS(domain, dnsServer string, timeout time.Duration) *DNSAnswer {
 	client := &dns.Client{
 		Timeout: timeout,
+		// UDPSize: 4096,
 	}
+
 	message := &dns.Msg{}
 	message.SetQuestion(dns.Fqdn(domain), dns.TypeA) // A record
+	message.SetEdns0(4096, false)
 
 	// init DNSAnswer
 	answer := &DNSAnswer{}
