@@ -162,7 +162,7 @@ func scheduleTests(
 	maxFailures int,
 	onTestDone func(int, int, int),
 ) {
-	globRateLimit_tokenBucket := NewTokenBucket(globRateLimit, time.Second)
+	globRateLimit_tokenBucket := NewTokenBucket(uint64(globRateLimit), time.Second)
 	globRateLimit_tokenBucket.StartRefiller()
 
 	for {
@@ -195,7 +195,7 @@ func scheduleTests(
 				continue
 			}
 			// consume a globRateLimit_tokenbucket token if available
-			if ! globRateLimit_tokenBucket.consumeOne() {
+			if ! globRateLimit_tokenBucket.ConsumeOne() {
 				continue
 			}
 			select {
@@ -213,7 +213,7 @@ func scheduleTests(
 			default:
 				// No free slot right now
 				// give back consumed globRateLimit_tokenbucket token
-				globRateLimit_tokenBucket.giveBackOne()
+				globRateLimit_tokenBucket.GiveBackOne()
 			}
 		}
 		// Check if we're done

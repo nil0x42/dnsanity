@@ -1,130 +1,154 @@
 package dnsanitize
 
 import (
+	"context"
 	"math"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// tokenBucket limits the consumption of "tokens" (or requests) over time.
-// We define a "globalRateLimit" in RPS (requests per second)
-// and a desired "burstTime" which indicates how large a burst we might want.
-// However, to keep an integer number of tokens (no fractions), we must:
-// 1) Round the product (globalRateLimit * burstTime.Seconds()) to get refillAmount.
-// 2) Recompute the actual refill interval so that the average is exactly the desired RPS.
-//    realIntervalSec = refillAmount / globalRateLimit.
-//    That way, we add 'refillAmount' tokens every 'realIntervalSec' seconds,
-//    giving an exact average of 'globalRateLimit' tokens/s.
-// 3) We override the stored "burstTime" to match the new refillInterval,
-//    so that we can see the actual timing in the struct if needed.
+// TokenBucket implements a high-performance token bucket rate limiter
+// using Go 1.19 atomic wrappers. It guarantees zero mutex usage,
+// idempotent start/stop, and strict parameter validation.
+type TokenBucket struct {
+	tokens         atomic.Uint64  // current number of available tokens
+	maxTokens      atomic.Uint64  // maximum number of tokens (burst capacity)
+	refillAmount   atomic.Uint64  // tokens added each interval
+	refillInterval time.Duration // interval between refills
 
-// Example: if globalRateLimit=3 and burstTime=500ms,
-// floatTokens = 3 * 0.5 = 1.5 => rounding => 2 tokens.
-// Then realIntervalSec = 2 / 3 = ~0.666..., so we add 2 tokens every ~666ms.
-// That yields an average of exactly 3 tokens per second.
-
-type tokenBucket struct {
-	mu             sync.Mutex
-	tokens         int           // current number of available tokens
-	maxTokens      int           // maximum number of allowed tokens
-	refillInterval time.Duration // actual interval between refills
-	refillAmount   int           // number of tokens added each refill
-
-	stopCh   chan struct{}
-	stopped  bool
+	startOnce sync.Once          // ensures StartRefiller is called only once
+	ctx       context.Context    // context for cancellation
+	cancel    context.CancelFunc // cancellation function
 }
 
-// NewTokenBucket calculates an integer-based token bucket.
-// globalRateLimit = RPS, burstTime is the desired burst.
-// Steps:
-//  1) round the product float64(RPS) * burstTime.Seconds() to find refillAmount.
-//  2) compute realIntervalSec = refillAmount / float64(RPS).
-//  3) set refillInterval to that real value, override burstTime.
-//  4) the bucket is initialized full (tokens = maxTokens), where maxTokens = refillAmount.
-func NewTokenBucket(globalRateLimit int, burstTime time.Duration) *tokenBucket {
+// NewTokenBucket creates a new TokenBucket given a desired rate (RPS) and burst duration.
+// It panics if parameters are invalid or lead to impossible internal values.
+func NewTokenBucket(globalRateLimit uint64, burstTime time.Duration) *TokenBucket {
+	// validate inputs
 	if globalRateLimit < 1 {
-		globalRateLimit = 1
+		panic("dnsanitize: globalRateLimit must be >= 1")
 	}
 	if burstTime <= 0 {
-		// fallback to avoid zero or negative
-		burstTime = time.Second
+		panic("dnsanitize: burstTime must be > 0")
 	}
 
-	// 1) compute floatTokens and round
+	// calculate desired tokens as float and round
 	floatTokens := float64(globalRateLimit) * burstTime.Seconds()
-	refillAmount := int(math.Round(floatTokens))
+	refillAmount := uint64(math.Round(floatTokens))
 	if refillAmount < 1 {
-		refillAmount = 1
+		panic("dnsanitize: computed refillAmount < 1; burstTime too small relative to rate")
 	}
 
-	// 2) compute the actual interval so that average is exactly globalRateLimit
-	realIntervalSec := float64(refillAmount) / float64(globalRateLimit)
-	realInterval := time.Duration(realIntervalSec * float64(time.Second))
+	// derive interval to ensure exact average rate
+	realInterval := time.Duration(
+		float64(refillAmount)/float64(globalRateLimit)*float64(time.Second),
+	)
+	if realInterval < time.Nanosecond {
+		panic("dnsanitize: computed refillInterval < 1ns; parameters too extreme")
+	}
 
-	// We'll store refillAmount as both "maxTokens" and "refillAmount".
-	// 3) we override the user-specified burstTime with realInterval
-	//    (so that StartRefiller uses the exact interval for the average RPS)
-	tb := &tokenBucket{
-		tokens:         refillAmount,     // start bucket full
-		maxTokens:      refillAmount,
+	// initialize context for cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// build bucket
+	tb := &TokenBucket{
 		refillInterval: realInterval,
-		refillAmount:   refillAmount,
-		stopCh:         nil,
-		stopped:        false,
+		ctx:             ctx,
+		cancel:          cancel,
 	}
+	tb.tokens.Store(refillAmount)
+	tb.maxTokens.Store(refillAmount)
+	tb.refillAmount.Store(refillAmount)
 	return tb
 }
 
-// StartRefiller launches a goroutine that, at each refillInterval,
-// adds refillAmount tokens (capped at maxTokens).
-func (tb *tokenBucket) StartRefiller() {
-	tb.stopCh = make(chan struct{})
-	go func() {
+// StartRefiller begins a background goroutine that refills tokens at fixed intervals.
+// It is safe to call multiple times; the refiller will only start once.
+func (tb *TokenBucket) StartRefiller() {
+	tb.startOnce.Do(func() {
 		ticker := time.NewTicker(tb.refillInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-tb.stopCh:
-				return
-			case <-ticker.C:
-				tb.mu.Lock()
-				tb.tokens += tb.refillAmount
-				if tb.tokens > tb.maxTokens {
-					tb.tokens = tb.maxTokens
+		go func() {
+			defer ticker.Stop()
+			for {
+				select {
+				case <-tb.ctx.Done():
+					return
+				case <-ticker.C:
+					tb.refillOnce()
 				}
-				tb.mu.Unlock()
 			}
+		}()
+	})
+}
+
+// StopRefiller stops the background refill goroutine. It is safe to call multiple times.
+func (tb *TokenBucket) StopRefiller() {
+	// cancel is idempotent and thread-safe
+	tb.cancel()
+}
+
+// refillOnce performs a single refill operation with CAS loop and minimal backoff.
+func (tb *TokenBucket) refillOnce() {
+	const maxSpins = 10
+	for spins := 0; ; spins++ {
+		old := tb.tokens.Load()
+		want := old + tb.refillAmount.Load()
+		max := tb.maxTokens.Load()
+		if want > max {
+			want = max
 		}
-	}()
-}
-
-// StopRefiller signals the refill goroutine to terminate.
-func (tb *tokenBucket) StopRefiller() {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-	if !tb.stopped {
-		tb.stopped = true
-		close(tb.stopCh)
+		if tb.tokens.CompareAndSwap(old, want) {
+			return
+		}
+		if spins >= maxSpins {
+			runtime.Gosched()
+			spins = 0
+		}
 	}
 }
 
-// consumeOne tries to remove one token from the bucket. Returns true if successful.
-func (tb *tokenBucket) consumeOne() bool {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-	if tb.tokens > 0 {
-		tb.tokens--
-		return true
+// ConsumeOne attempts to remove one token. Returns true if successful.
+// This method is lock-free and non-blocking.
+func (tb *TokenBucket) ConsumeOne() bool {
+	const maxSpins = 10
+	for spins := 0; ; spins++ {
+		old := tb.tokens.Load()
+		if old == 0 {
+			return false
+		}
+		if tb.tokens.CompareAndSwap(old, old-1) {
+			return true
+		}
+		if spins >= maxSpins {
+			runtime.Gosched()
+			spins = 0
+		}
 	}
-	return false
 }
 
-// giveBackOne re-injects one token, e.g. if we reserved it but didn't use it.
-func (tb *tokenBucket) giveBackOne() {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-	if tb.tokens < tb.maxTokens {
-		tb.tokens++
+// GiveBackOne returns one token back into the bucket if not already full.
+// This method is lock-free and non-blocking.
+func (tb *TokenBucket) GiveBackOne() {
+	const maxSpins = 10
+	for spins := 0; ; spins++ {
+		old := tb.tokens.Load()
+		max := tb.maxTokens.Load()
+		if old >= max {
+			return
+		}
+		if tb.tokens.CompareAndSwap(old, old+1) {
+			return
+		}
+		if spins >= maxSpins {
+			runtime.Gosched()
+			spins = 0
+		}
 	}
+}
+
+// IsEmpty returns whether the bucket has no tokens available.
+func (tb *TokenBucket) IsEmpty() bool {
+	return tb.tokens.Load() == 0
 }
