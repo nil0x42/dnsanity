@@ -11,7 +11,7 @@ import (
 
 
 func ReportValidResults(
-	servers []dnsanitize.ServerState,
+	servers []dnsanitize.ServerContext,
 	filepath string,
 ) {
 	var f *os.File
@@ -32,12 +32,12 @@ func ReportValidResults(
 		if srv.Disabled {
 			continue
 		}
-		fmt.Fprintf(f, "%v\n", srv.IP);
+		fmt.Fprintf(f, "%v\n", srv.IPAddress);
 	}
 }
 
 func ReportAllResults(
-	servers []dnsanitize.ServerState,
+	servers []dnsanitize.ServerContext,
 	filepath string,
 ) {
 	var f *os.File
@@ -56,9 +56,9 @@ func ReportAllResults(
 	}
 	for _, srv := range servers {
 		if srv.Disabled {
-			fmt.Fprintf(f, "- %v\n", srv.IP);
+			fmt.Fprintf(f, "- %v\n", srv.IPAddress);
 		} else {
-			fmt.Fprintf(f, "+ %v\n", srv.IP);
+			fmt.Fprintf(f, "+ %v\n", srv.IPAddress);
 		}
 	}
 }

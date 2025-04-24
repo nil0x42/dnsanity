@@ -80,10 +80,10 @@ func TestTTYProgressReporter(t *testing.T) {
 
 func TestReportValidResults(t *testing.T) {
     // ReportValidResults écrit sur Stdout
-    servers := []dnsanitize.ServerState{
-        {IP: "8.8.8.8", Disabled: false},
-        {IP: "1.1.1.1", Disabled: true},
-        {IP: "9.9.9.9", Disabled: false},
+    servers := []dnsanitize.ServerContext{
+        {IPAddress: "8.8.8.8", Disabled: false},
+        {IPAddress: "1.1.1.1", Disabled: true},
+        {IPAddress: "9.9.9.9", Disabled: false},
     }
     captured := captureStdout(func() {
         ReportValidResults(servers, "")
@@ -103,9 +103,9 @@ func TestReportValidResults(t *testing.T) {
 
 func TestReportAllResults(t *testing.T) {
     // ReportAllResults écrit aussi sur Stdout
-    servers := []dnsanitize.ServerState{
-        {IP: "8.8.8.8", Disabled: false},
-        {IP: "1.1.1.1", Disabled: true},
+    servers := []dnsanitize.ServerContext{
+        {IPAddress: "8.8.8.8", Disabled: false},
+        {IPAddress: "1.1.1.1", Disabled: true},
     }
     captured := captureStdout(func() {
         ReportAllResults(servers, "")
@@ -125,9 +125,9 @@ func TestReportDetails(t *testing.T) {
         {Domain: "example.org", Status: "NOERROR"},
         {Domain: "test.org", Status: "SERVFAIL"},
     }
-    servers := []dnsanitize.ServerState{
-        {IP: "8.8.8.8", NumFailed: 0}, // valid
-        {IP: "1.1.1.1", NumFailed: 2}, // invalid
+    servers := []dnsanitize.ServerContext{
+        {IPAddress: "8.8.8.8", FailedCount: 0}, // valid
+        {IPAddress: "1.1.1.1", FailedCount: 2}, // invalid
     }
 
     captured := captureStderr(func() {

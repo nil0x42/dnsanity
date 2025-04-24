@@ -7,118 +7,105 @@ import (
 	"github.com/nil0x42/dnsanity/internal/dns"
 )
 
-type serverTest struct {
+type CheckContext struct {
 	Answer				dns.DNSAnswer
-	IsOk				bool
-	RemainingAttempts	int
+	Passed				bool
+	AttemptsLeft		int
 	MaxAttempts			int
 }
 
-type ServerState struct {
-	// IP is the server address (IPv4).
-	IP				string
-	// Disabled indicates whether the server was disabled at some point
-	// (due to reaching the maxFailures threshold), so the remaining tests
-	// were not executed.
-	Disabled		bool
-	// NumFailed is how many tests failed for this server.
-	NumFailed		int
-	// NumCompleted: how many tests are completed (failed + succeeded)
-	NumCompleted	int
-	// at which time a new dns query can be made:
-	NextAllowedTime	time.Time
-	// a queue of test ids that must still be completed:
-	TestsTodo		[]int
-	// tests results per server:
-	Tests			[]serverTest
+type ServerContext struct {
+	IPAddress			string // server's IPv4
+	Disabled			bool // True if reached maxFailures
+	FailedCount			int // failed checks.
+	CompletedCount		int // completed checks (failed + succeeded)
+	NextQueryAt			time.Time // to honour per-server ratelimit
+	PendingChecks		[]int // list of pending Check IDs
+	Checks				[]CheckContext // results of checks
 }
-// ServerState.Finished():
-func (srv *ServerState) Finished() bool {
-	return srv.Disabled || srv.NumCompleted == len(srv.Tests)
+// ServerContext.Finished():
+func (srv *ServerContext) Finished() bool {
+	return srv.Disabled || srv.CompletedCount == len(srv.Checks)
 }
 
 
-// resultMsg is used by worker goroutines to send back the final DNSAnswer.
-type resultMsg struct {
-	srvIdx		int
-	testIdx		int
-	answer		dns.DNSAnswer
-	isOk		bool
+// WorkerResult is used by worker goroutines to send back the final DNSAnswer.
+type WorkerResult struct {
+	ServerID			int
+	CheckID				int
+	Answer				dns.DNSAnswer
+	Passed				bool
 }
 
 
-type schedulerStruct struct {
-	waitGroup	sync.WaitGroup	// to wait for remaining workers at the end
-	semaphore	chan struct{}	// concurrency limiter
-	results		chan resultMsg	// worker results are sent here:
+type QueryScheduler struct {
+	waitGroup			sync.WaitGroup
+	ConcurrencyLimiter	chan struct{}
+	Results				chan WorkerResult // worker results are sent here:
 }
 
 
 func runDNSWorker(
-	srvIp string, test *dns.DNSAnswer, srvIdx int, testIdx int,
-	timeout time.Duration, sched *schedulerStruct,
+	serverIP	string, // IP address
+	check		*dns.DNSAnswer, // template check
+	serverID	int, // server ID (index within pool)
+	checkID		int, // check ID (index)
+	timeout		time.Duration, // DNS query timeout
+	sched		*QueryScheduler, // query scheduler
 ) {
 	defer sched.waitGroup.Done()
-	answer := dns.ResolveDNS(test.Domain, srvIp, timeout)
-	sched.results <- resultMsg{
-		srvIdx:  srvIdx,
-		testIdx: testIdx,
-		answer:  *answer,
-		isOk:	 test.Equals(answer),
+	answer := dns.ResolveDNS(check.Domain, serverIP, timeout)
+	sched.Results <- WorkerResult{
+		ServerID:		serverID,
+		CheckID:		checkID,
+		Answer:			*answer,
+		Passed:			check.Equals(answer),
 	}
-	<- sched.semaphore
+	<- sched.ConcurrencyLimiter
 }
 
 // DNSanitize prepares the data structures and invokes the scheduling loop.
-//
-// servers:      DNS servers to test, each one is an IP address or validated host.
-// tests:        DNS tests to execute (in order 0..len(tests)-1).
-// maxThreads:   Global limit of concurrent goroutines (all servers combined).
-// rateLimit:    Max number of DNS requests per second, per server. (0 or negative = no limit.)
-// maxFailures:  Failure threshold. If >= 0, a server is disabled after that many failures.
-//               If 0 => disable on first failure. If -1 => never disable the server.
-//
-// Returns a ServerState slice, one entry per server, with each DNSAnswer's outcome.
+// Returns a ServerContext slice, one entry per server, with each DNSAnswer's outcome.
 func DNSanitize(
-	servers []string,
-	tests []dns.DNSAnswer,
-	globRateLimit int,
-	maxThreads int,
-	rateLimit int,
-	timeout int,
-	maxFailures int,
-	maxAttempts int,
-	onTestDone func(int, int, int),
-) []ServerState {
+	serverIPs		[]string, // IP of DNS servers to test
+	checks			[]dns.DNSAnswer, // checks from template
+	globRateLimit	int, // global rate limit (max rps)
+	maxThreads		int, // global limit of concurrent goroutines
+	rateLimit		int, // per-server rate limit (max rps)
+	timeout			int, // max seconds before DNS query timeout
+	maxFailures		int, // max allowed non-passing checks per server
+	maxAttempts		int, // max attempts per check before failure
+	onTestDone		func(int, int, int), // callback
+) []ServerContext {
 
+	// can't perform less than 1 attempt !
 	if maxAttempts < 1 {
-		maxAttempts = 1 // can't perform less than 1 attempt !
+		maxAttempts = 1
 	}
-
-	// Initialize slice of ServerStates:
-	srvStates := make([]ServerState, len(servers))
-	for i, srv := range servers {
-		srvStates[i] = ServerState{
-			IP:					srv,
-			Disabled:			false,
-			NumFailed:			0,
-			NextAllowedTime:	time.Time{},
-			TestsTodo:			make([]int, len(tests)),
-			Tests:				make([]serverTest, len(tests)),
+	// Initialize ServerContexts:
+	servers := make([]ServerContext, len(serverIPs))
+	for i, serverIP := range serverIPs {
+		servers[i] = ServerContext{
+			IPAddress:		serverIP,
+			Disabled:		false,
+			FailedCount:	0,
+			NextQueryAt:	time.Time{},
+			PendingChecks:	make([]int, len(checks)),
+			Checks:			make([]CheckContext, len(checks)),
 		}
-		for j := range tests {
-			srvStates[i].TestsTodo[j] = j;
-			srvStates[i].Tests[j].Answer.Domain = tests[j].Domain
+		for j := range checks {
+			servers[i].PendingChecks[j] = j;
+			servers[i].Checks[j].Answer.Domain = checks[j].Domain
 			// defaults to 'SKIPPED' before being overridden (or not):
-			srvStates[i].Tests[j].Answer.Status = "SKIPPED"
-			srvStates[i].Tests[j].RemainingAttempts = maxAttempts
-			srvStates[i].Tests[j].MaxAttempts = maxAttempts
+			servers[i].Checks[j].Answer.Status = "SKIPPED"
+			servers[i].Checks[j].AttemptsLeft = maxAttempts
+			servers[i].Checks[j].MaxAttempts = maxAttempts
 		}
 	}
-	// If total tests < maxThreads, limit maxThreads to total test count
-	totalTests := len(servers) * len(tests)
-	if maxThreads > totalTests {
-		maxThreads = totalTests
+	// If total checks < maxThreads, limit maxThreads to total test count
+	totalChecks := len(serverIPs) * len(checks)
+	if maxThreads > totalChecks {
+		maxThreads = totalChecks
 	}
 	// create reqInterval => min interval between 2 reqs per server
 	reqInterval := time.Duration(0)
@@ -131,54 +118,52 @@ func DNSanitize(
 	}
 	// create timeout duration (convert timeout to time.Duration)
 	timeoutDuration := time.Duration(timeout) * time.Second
-	// callback is nil -> dummy func
-    if onTestDone == nil {
-        onTestDone = func(_ int, __ int, ___ int) {}
-    }
 	// init scheduler objects
-	sched := schedulerStruct{
-		waitGroup:		sync.WaitGroup{},
-		semaphore:		make(chan struct{}, maxThreads),
-		results:		make(chan resultMsg, maxThreads),
+	sched := QueryScheduler{
+		waitGroup:				sync.WaitGroup{},
+		ConcurrencyLimiter:		make(chan struct{}, maxThreads),
+		Results:				make(chan WorkerResult, maxThreads),
 	}
-	// Run the scheduling loop to fill out srvStates
-	scheduleTests(
-		srvStates, tests, sched,
-		globRateLimit, reqInterval, timeoutDuration, maxFailures,
+	// init global ratelimiter
+	globRateLimiter := NewTokenBucket(uint64(globRateLimit), time.Second)
+	globRateLimiter.StartRefiller()
+	// Run the scheduling loop to fill out servers
+	scheduleChecks(
+		servers, checks, sched,
+		globRateLimiter, reqInterval,
+		timeoutDuration, maxFailures,
 		onTestDone,
 	)
-	return srvStates
+	globRateLimiter.StopRefiller() // stop gobal ratelimiter
+	return servers
 }
 
-// scheduleTests is the core scheduler that dispatches DNS queries, observes
-// concurrency limits, rate limits, and failure thresholds.
-func scheduleTests(
-	servers []ServerState,
-	tests []dns.DNSAnswer,
-	sched schedulerStruct,
-	globRateLimit int,
-	reqInterval time.Duration,
-	timeout time.Duration,
-	maxFailures int,
-	onTestDone func(int, int, int),
+// scheduleChecks is the core scheduler that dispatches DNS queries,
+// observes concurrency limits, rate limits, and failure thresholds.
+func scheduleChecks(
+	servers			[]ServerContext, // servers
+	checks			[]dns.DNSAnswer, // template checks
+	sched			QueryScheduler, // query scheduler
+	globRateLimiter	*TokenBucket, // global rate limiter
+	reqInterval		time.Duration, // min interval between 2 reqs per server
+	timeout			time.Duration, // DNS query timeout
+	maxFailures		int, // max allowed non-passing checks per server
+	onTestDone		func(int, int, int), // callback
 ) {
-	globRateLimit_tokenBucket := NewTokenBucket(uint64(globRateLimit), time.Second)
-	globRateLimit_tokenBucket.StartRefiller()
-
 	for {
 		// 1) Collect newly completed results (non-blocking).
 		collectLoop:
 		for {
 			select {
-			case res := <- sched.results:
+			case res := <- sched.Results:
 				applyResults(
-					&servers[res.srvIdx], &res, maxFailures, onTestDone,
+					&servers[res.ServerID], &res, maxFailures, onTestDone,
 				)
 			default:
 				break collectLoop
 			}
 		}
-		// 2) Attempt to schedule new tests if resources are available
+		// 2) Attempt to schedule new checks if resources are available
 		now := time.Now()
 		numScheduled := 0
 		numFinished := 0
@@ -189,31 +174,30 @@ func scheduleTests(
 				numFinished++
 				continue
 			}
-			// skip servers whose NextAllowedTime is in the future
-			// skip servers with an empty queue (TestsTodo)
-			if srv.NextAllowedTime.After(now) || len(srv.TestsTodo) == 0 {
+			// skip servers whose NextQueryAt is in the future
+			// skip servers with an empty queue (PendingChecks)
+			if srv.NextQueryAt.After(now) || len(srv.PendingChecks) == 0 {
 				continue
 			}
-			// consume a globRateLimit_tokenbucket token if available
-			if ! globRateLimit_tokenBucket.ConsumeOne() {
+			// consume a 'request' token if available
+			if ! globRateLimiter.ConsumeOne() {
 				continue
 			}
 			select {
-			case sched.semaphore <- struct{}{}:
+			case sched.ConcurrencyLimiter <- struct{}{}:
 				// We can schedule a new test for this server
-				testIdx := srv.TestsTodo[0]
-				srv.TestsTodo = srv.TestsTodo[1:]
+				CheckID := srv.PendingChecks[0]
+				srv.PendingChecks = srv.PendingChecks[1:]
 				sched.waitGroup.Add(1)
 				go runDNSWorker(
-					srv.IP, &tests[testIdx],
-					i, testIdx, timeout, &sched,
+					srv.IPAddress, &checks[CheckID],
+					i, CheckID, timeout, &sched,
 				)
-				srv.NextAllowedTime = now.Add(reqInterval)
+				srv.NextQueryAt = now.Add(reqInterval)
 				numScheduled++
 			default:
-				// No free slot right now
-				// give back consumed globRateLimit_tokenbucket token
-				globRateLimit_tokenBucket.GiveBackOne()
+				// No free slot: give back consumed ratelimit token:
+				globRateLimiter.GiveBackOne()
 			}
 		}
 		// Check if we're done
@@ -227,38 +211,40 @@ func scheduleTests(
 	}
 	// END) Once all works are done, close chan & read remaining msgs:
 	sched.waitGroup.Wait()
-	close(sched.results)
-	for res := range sched.results {
-		applyResults(&servers[res.srvIdx], &res, maxFailures, onTestDone)
+	close(sched.Results)
+	for res := range sched.Results {
+		applyResults(
+			&servers[res.ServerID], &res, maxFailures, onTestDone,
+		)
 	}
-	globRateLimit_tokenBucket.StopRefiller()
 }
 
 // update results from scheduler (main thread, no concurrency)
 func applyResults(
-	srv *ServerState, res *resultMsg,
-	maxFailures int, onTestDone func(int, int, int),
+	srv				*ServerContext, // server
+	res				*WorkerResult, // worker result
+	maxFailures		int, // max allowed non-passing checks per server
+	onTestDone		func(int, int, int), // callback
 ) {
-
-	srv.Tests[res.testIdx].RemainingAttempts-- // decrement remaining attempts
-	srv.Tests[res.testIdx].Answer = res.answer // update answer
+	srv.Checks[res.CheckID].AttemptsLeft--
+	srv.Checks[res.CheckID].Answer = res.Answer
 	// test succeeded:
-	if res.isOk {
-		srv.NumCompleted++ // this testId is now completed
-		srv.Tests[res.testIdx].IsOk = true
+	if res.Passed {
+		srv.CompletedCount++
+		srv.Checks[res.CheckID].Passed = true
 		if !srv.Disabled {
 			onTestDone(1, 0, 0)
 		} else {
 			onTestDone(1, 1, 0)
 		}
 	// test failed WITHOUT remaining attempts:
-	} else if srv.Tests[res.testIdx].RemainingAttempts <= 0 {
-		srv.NumCompleted++ // this testId is now completed
-		srv.NumFailed++
+	} else if srv.Checks[res.CheckID].AttemptsLeft <= 0 {
+		srv.CompletedCount++ // this testId is now completed
+		srv.FailedCount++
 		// triggered max-mismatches:
-		if srv.NumFailed >= maxFailures {
+		if srv.FailedCount >= maxFailures {
 			if !srv.Disabled {
-				leftover := (len(srv.Tests) - srv.NumCompleted)
+				leftover := (len(srv.Checks) - srv.CompletedCount)
 				onTestDone(1, -leftover, 1)
 				srv.Disabled = true
 			} else {
@@ -274,7 +260,7 @@ func applyResults(
 		}
 	// test failed WITH remaining attempts
 	} else {
-		srv.TestsTodo = append([]int{res.testIdx}, srv.TestsTodo...)
+		srv.PendingChecks = append([]int{res.CheckID}, srv.PendingChecks...)
 		if !srv.Disabled {
 			onTestDone(1, 1, 0)
 		} else {

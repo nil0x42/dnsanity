@@ -140,6 +140,8 @@ func matchRecord(pattern, str string) bool {
 	return true
 }
 
+var errNoEntries = errors.New("no entries found")
+
 // new DNSAnswer from string
 func DNSAnswerFromString(input string) (*DNSAnswer, error) {
 	parts := strings.Fields(input)
@@ -211,8 +213,6 @@ func DNSAnswerSliceFromString(input string) ([]DNSAnswer, error) {
 	}
 	return answers, nil
 }
-
-var errNoEntries = errors.New("no entries found")
 
 // parseDNSAnswers reads DNS answers from a reader, using wrapErr to format line-specific errors
 func parseDNSAnswers(r io.Reader, wrapErr func(error, int) error) ([]DNSAnswer, error) {

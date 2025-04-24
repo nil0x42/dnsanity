@@ -41,7 +41,7 @@ func main() {
 	// abort if at least 1 trusted server has a mismatch:
 	failedTrustedServers := 0
 	for _, srv := range trustedRes {
-		if srv.NumFailed > 0 {
+		if srv.FailedCount > 0 {
 			failedTrustedServers++
 		}
 	}

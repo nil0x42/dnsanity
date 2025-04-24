@@ -12,15 +12,17 @@ import (
 // For now, we'll rely on the existing dns.ResolveDNS plus small tests verifying behavior
 func TestDNSanitizeSimple(t *testing.T) {
 	// Prepare test servers
-	servers := []string{"8.8.8.8", "1.1.1.1"}
+	serverIPs := []string{"8.8.8.8", "1.1.1.1"}
 	// Prepare test queries
 	tests := []dns.DNSAnswer{
 		{Domain: "dnssec-failed.org", Status: "SERVFAIL"},
 		{Domain: "dn05jq2u.fr", Status: "NXDOMAIN"},
 	}
 
-	srvStates := DNSanitize(
-		servers,
+	callback := func(a, b, c int) {}
+
+	servers := DNSanitize(
+		serverIPs,
 		tests,
 		10,   // globRateLimit
 		2,    // maxThreads
@@ -28,11 +30,11 @@ func TestDNSanitizeSimple(t *testing.T) {
 		2,    // timeout in seconds
 		0,    // maxFailures => server disabled on first mismatch
 		1,    // maxAttempts
-		nil,  // onTestDone callback
+		callback,  // onTestDone callback
 	)
 
-	if len(srvStates) != 2 {
-		t.Fatalf("Got %d server states, want 2", len(srvStates))
+	if len(servers) != 2 {
+		t.Fatalf("Got %d server states, want 2", len(servers))
 	}
 }
 

@@ -22,28 +22,28 @@ func ReportTemplate(template []dns.DNSAnswer) {
 // detailed report
 func ReportDetails(
 	template []dns.DNSAnswer,
-	servers []dnsanitize.ServerState,
+	servers []dnsanitize.ServerContext,
 ) {
 	ReportTemplate(template)
 
 	for _, srv := range servers {
-		if srv.NumFailed == 0 {
+		if srv.FailedCount == 0 {
 			tty.SmartFprintf(
-				os.Stderr, "\033[1;32m[+] SERVER %v (valid)\033[m\n", srv.IP)
+				os.Stderr, "\033[1;32m[+] SERVER %v (valid)\033[m\n", srv.IPAddress)
 		} else {
 			tty.SmartFprintf(
-				os.Stderr, "\033[1;31m[-] SERVER %v (invalid)\033[m\n", srv.IP)
+				os.Stderr, "\033[1;31m[-] SERVER %v (invalid)\033[m\n", srv.IPAddress)
 		}
-		for _, test := range srv.Tests {
+		for _, test := range srv.Checks {
 			var prefix string
-			if test.IsOk {
+			if test.Passed {
 				prefix = "\033[1;32m+\033[0;32m"
 			} else if test.Answer.Status == "SKIPPED" {
 				prefix = "\033[1;90m!\033[0;90m"
 			} else {
 				prefix = "\033[1;31m-\033[0;31m"
 			}
-			numTries := test.MaxAttempts - test.RemainingAttempts
+			numTries := test.MaxAttempts - test.AttemptsLeft
 			attemptsRepr := ""
 			if numTries > 1 {
 				suffix := "th"
