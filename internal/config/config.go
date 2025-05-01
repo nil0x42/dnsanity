@@ -9,7 +9,6 @@ import (
 	// local
 	"github.com/nil0x42/dnsanity/internal/dns"
 	"github.com/nil0x42/dnsanity/internal/tty"
-	"github.com/nil0x42/dnsanity/internal/display"
 )
 
 
@@ -18,6 +17,7 @@ type Config struct {
 	TrustedDnsList   []string
 	UntrustedDnsList []string
 	Template         []dns.DNSAnswer
+	OutputFile       *os.File
 }
 
 
@@ -55,8 +55,10 @@ func Init() *Config {
 	if opts.UntrustedDNS == "" {
 		if tty.IsTTY(os.Stdin) {
 			if opts.Verbose || opts.Template != "" {
-				display.ReportTemplate(conf.Template)
-				fmt.Fprintf(os.Stderr, "\n")
+				fmt.Fprintf(
+					os.Stderr, "%s\n",
+					dns.PrettyDumpTemplate(conf.Template),
+				)
 			}
 			exitUsage("-list: Required unless passed through STDIN")
 		}
@@ -68,7 +70,19 @@ func Init() *Config {
 		exitUsage("-list: %w", err)
 	}
 
+	conf.OutputFile, err = OpenFile(opts.OutputFilePath)
+	if err != nil {
+		exitUsage("-o: %w", err)
+	}
 
 	conf.Opts = opts
 	return conf
+}
+
+
+func OpenFile(path string) (*os.File, error) {
+    if path == "" || path == "-" || path == "/dev/stdout" {
+        return os.Stdout, nil
+    }
+    return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 }

@@ -29,6 +29,7 @@ type Options struct {
 	// ShowFullHelp     bool
 	ShowVersion      bool
 	Verbose          bool
+	Debug            bool
 }
 
 func ShowHelp() {
@@ -126,7 +127,10 @@ func ShowHelp() {
 		"   %s-version%s                   display version of dnsanity\n",
 		yel, rst)
 	s += fmt.Sprintf(
-		"   %s-verbose%s                   show configuration and template\n",
+		"   %s-verbose%s                   show detailed servers status\n",
+		yel, rst)
+	s += fmt.Sprintf(
+		"   %s-debug%s                     enable debugging information\n",
 		yel, rst)
 	s += fmt.Sprintf("\n")
 	tty.SmartFprintf(os.Stdout, s)
@@ -165,6 +169,7 @@ func ParseOptions() (*Options, error) {
 	// flag.BoolVar(&opts.ShowFullHelp, "full-help", false, "show advanced help")
 	flag.BoolVar(&opts.ShowVersion, "version", false, "display version of dnsanity")
 	flag.BoolVar(&opts.Verbose, "verbose", false, "show configuration and template")
+	flag.BoolVar(&opts.Debug, "debug", false, "enable debugging information")
 	flag.Usage = ShowHelp
 
 	flag.Parse()

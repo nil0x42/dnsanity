@@ -4,12 +4,18 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"context"
 
 	"github.com/miekg/dns"
 )
 
 
-func ResolveDNS(domain, dnsServer string, timeout time.Duration) *DNSAnswer {
+func ResolveDNS(
+	domain		string,
+	dnsServer	string,
+	timeout		time.Duration,
+	ctx			context.Context,
+) *DNSAnswer {
 	client := &dns.Client{
 		Timeout: timeout,
 		// UDPSize: 4096,
@@ -24,7 +30,7 @@ func ResolveDNS(domain, dnsServer string, timeout time.Duration) *DNSAnswer {
 	answer.Domain = domain
 
 	// DNS resolution
-	response, _, err := client.Exchange(message, dnsServer+":53")
+	response, _, err := client.ExchangeContext(ctx, message, dnsServer+":53")
 	if err != nil {
 		if strings.HasSuffix(err.Error(), "i/o timeout") {
 			answer.Status = "TIMEOUT"

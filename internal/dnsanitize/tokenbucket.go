@@ -148,7 +148,7 @@ func (tb *TokenBucket) GiveBackOne() {
 	}
 }
 
-// IsEmpty returns whether the bucket has no tokens available.
-func (tb *TokenBucket) IsEmpty() bool {
-	return tb.tokens.Load() == 0
+// Remaining returns the number of remaining reqs that can be done right now
+func (tb *TokenBucket) Remaining() int {
+	return int(tb.tokens.Load())
 }

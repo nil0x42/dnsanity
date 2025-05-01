@@ -17,6 +17,14 @@ type DNSAnswer struct {
 	CNAME  []string // sorted CNAME records
 }
 
+func PrettyDumpTemplate(template []DNSAnswer) string {
+	s := fmt.Sprintf("\033[1;34m[*] DNSANITY TEMPLATE:\033[m\n")
+	for _, entry := range template {
+		s += fmt.Sprintf("    \033[34m* %s\033[m\n", entry.ToString())
+	}
+	return s
+}
+
 // DNSAnswer.ToString converts a DNSAnswer to string
 func (da *DNSAnswer) ToString() string {
 	if len(da.A) == 0 && len(da.CNAME) == 0 {

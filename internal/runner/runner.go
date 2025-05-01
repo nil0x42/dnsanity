@@ -2,10 +2,10 @@ package runner
 
 import (
 	// standard
+	"io"
 	"os"
 	// external
 	// local
-	"github.com/nil0x42/dnsanity/internal/tty"
 	"github.com/nil0x42/dnsanity/internal/dns"
 	"github.com/nil0x42/dnsanity/internal/dnsanitize"
 	"github.com/nil0x42/dnsanity/internal/display"
@@ -13,9 +13,7 @@ import (
 
 
 func RunAndReport(
-	color string,
 	msg string, 
-	verbose bool,
 	serverIPs []string,
 	tests []dns.DNSAnswer,
 	globRateLimit int,
@@ -24,57 +22,30 @@ func RunAndReport(
 	timeout int,
 	maxFailures int,
 	maxAttempts int,
-) []dnsanitize.ServerContext {
+	debug bool,
+	outFile io.Writer,
+	debugFile io.Writer,
+	ttyFile *os.File,
+) *display.Status {
 
-	tty.SmartFprintf(
-		os.Stderr,
-		"%s[*] %s:\n",
-		color, msg,
+	status := display.NewStatus(
+		msg,
+		len(serverIPs),
+		len(tests),
+		globRateLimit,
+		maxThreads,
+		rateLimit,
+		timeout,
+		maxFailures,
+		maxAttempts,
+		outFile,
+		debugFile,
+		ttyFile,
+		debug,
+		dns.PrettyDumpTemplate(tests),
 	)
-	if (verbose || true) {
-		prefix := "\033[0m    \033[2;37m# "
-		// prefix := "    # "
-		tty.SmartFprintf(
-			os.Stderr,
-			"%sRun: %d servers * %d tests (max %d req/s, %d threads).\n",
-			prefix, len(serverIPs), len(tests), globRateLimit, maxThreads,
-		)
-		if maxFailures == 0 {
-			tty.SmartFprintf(
-				os.Stderr,
-				"%sEach server: max %d req/s, dropped if any test fails.\n",
-				prefix, rateLimit,
-			)
-		} else if maxFailures <= -1 {
-			tty.SmartFprintf(
-				os.Stderr,
-				"%sEach server: max %d req/s, never dropped.\n",
-				prefix, rateLimit,
-			)
-		} else {
-			tty.SmartFprintf(
-				os.Stderr,
-				"%sEach server: max %d req/s, dropped if >%d tests fail.\n",
-				prefix, rateLimit, maxFailures,
-			)
-		}
-		tty.SmartFprintf(
-			os.Stderr,
-			"%sEach test: %ds timeout, up to %d attempts.\n",
-			prefix, timeout, maxAttempts,
-		)
-		tty.SmartFprintf(os.Stderr, color)
-	}
 
-	totalTests := len(serverIPs) * len(tests)
-	var reporter display.ProgressReporter
-	if tty.IsTTY(os.Stderr) {
-		reporter = display.NewTTYProgressReporter(color, totalTests)
-	} else {
-		reporter = display.NewNoTTYProgressReporter(totalTests)
-	}
-
-	servers := dnsanitize.DNSanitize(
+	dnsanitize.DNSanitize(
 		serverIPs,
 		tests,
 		globRateLimit,
@@ -83,9 +54,8 @@ func RunAndReport(
 		timeout,
 		maxFailures,
 		maxAttempts,
-		reporter.Update, // callback
+		status,
 	)
-	reporter.Finish()
-	tty.SmartFprintf(os.Stderr, "\033[0m\n")
-	return servers
+	status.Stop()
+	return status
 }
