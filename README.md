@@ -9,6 +9,27 @@
 <br>
 
 <p align="center">
+  <a href="https://github.com/nil0x42/dnsanity/actions/workflows/tests.yml?query=branch%3Amaster">
+    <img src="https://img.shields.io/github/actions/workflow/status/nil0x42/dnsanity/tests.yml?label=tests&logo=githubactions" alt="Tests workflow">
+  </a>
+  <a href="https://github.com/nil0x42/dnsanity/network/dependencies">
+    <img src="https://img.shields.io/badge/dependabot-ok-aaf?logo=dependabot&logoColor=aaf" alt="Dependabot status">
+  </a>
+  <a href="https://app.codacy.com/gh/nil0x42/dnsanity/dashboard">
+    <img src="https://img.shields.io/codacy/grade/cebe14d956d7493eb4eee86ed8ae0e53?logo=codacy&logoColor=green" alt="Codacy code quality">
+  </a>
+  <a href="https://github.com/nil0x42/dnsanity/actions/workflows/codeql.yml?query=branch%3Amaster">
+    <img src="https://img.shields.io/github/actions/workflow/status/nil0x42/dnsanity/codeql.yml?label=codeql&color=af8" alt="CodeQL workflow">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://codecov.io/gh/nil0x42/dnsanity">
+    <img src="https://img.shields.io/codecov/c/github/nil0x42/dnsanity?color=orange&label=coverage&logo=codecov" alt="CodeCov coverage">
+  </a>
+  <a href="https://qlty.sh/gh/nil0x42/projects/dnsanity">
+    <img src="https://qlty.sh/badges/5654c96f-f352-4920-b5d1-59dd933171f1/maintainability.svg" alt="Qlty maintainability">
+  </a>
   <a href="https://twitter.com/intent/follow?screen_name=nil0x42" target="_blank">
     <img src="https://img.shields.io/twitter/follow/nil0x42.svg?logo=twitter" akt="follow on twitter">
   </a>
