@@ -134,7 +134,6 @@ func ShowHelp() {
 		yel, rst)
 	s += fmt.Sprintf("\n")
 	tty.SmartFprintf(os.Stdout, s)
-	os.Exit(0)
 }
 
 func ShowVersion() {
@@ -177,6 +176,7 @@ func ParseOptions() (*Options, error) {
 	// if opts.ShowHelp || opts.ShowFullHelp {
 	if opts.ShowHelp {
 		flag.Usage()
+		os.Exit(0)
 	}
 
 	if opts.ShowVersion {

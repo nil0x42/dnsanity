@@ -60,11 +60,10 @@ func main() {
 		tty.SmartFprintf(os.Stderr, "    - Outdated template entries\n",)
 		tty.SmartFprintf(os.Stderr, "    - Trusted server not so trustworthy\n",)
 		tty.SmartFprintf(os.Stderr, "\033[0m",)
-		os.Exit(2)
+		os.Exit(3)
 	}
 	trustedRes = nil // free mem
 	buf = nil // free mem
-
 
 	// SERVERS SANITIZATION
 	debugFile := os.Stderr
