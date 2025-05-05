@@ -22,6 +22,7 @@ type ServerPool struct {
 	nextSlot    int                    // slotID generator
 	validIPs    []string               // successfully validated
 	defaultPoolSize int // initial pool size
+	maxPoolSize int // maximum pool size
 }
 
 /* construction ----------------------------------------------------------- */
@@ -31,9 +32,16 @@ func NewServerPool(
 	todoList    []string,
 	template    []dns.DNSAnswer,
 	poolSize    int,
+	maxPoolSize int,
 	reqInterval time.Duration,
 	maxAttempts int,
 ) *ServerPool {
+	if poolSize < 1 {
+		panic("invalid poolSize <1")
+	}
+	if maxPoolSize < poolSize {
+		panic("maxPoolsize < poolSize")
+	}
 	sp := &ServerPool{
 		template:    template,
 		reqInterval: reqInterval,
@@ -41,6 +49,7 @@ func NewServerPool(
 		todo:        append([]string(nil), todoList...),
 		pool:        make(map[int]*dns.ServerContext, poolSize),
 		defaultPoolSize: poolSize,
+		maxPoolSize:     maxPoolSize,
 	}
 	sp.LoadN(poolSize)
 	return sp
@@ -53,7 +62,7 @@ func NewServerPool(
 func (sp *ServerPool) LoadN(n int) int {
     inserted := 0
     // Insert until we've done n inserts or run out of todos
-    for inserted < n && sp.nextTodo < len(sp.todo) {
+    for inserted < n && !sp.IsFull() && sp.nextTodo < len(sp.todo) {
         ip := sp.todo[sp.nextTodo]
         sp.nextTodo++
         slot := sp.nextSlot
@@ -82,6 +91,11 @@ func (sp *ServerPool) NumPending() int {
 // IsDrained is true when no server remains and todo is empty.
 func (sp *ServerPool) IsDrained() bool {
 	return len(sp.pool) == 0 && sp.nextTodo >= len(sp.todo)
+}
+
+// IsFull is true when pool size == maxPoolSize
+func (sp *ServerPool) IsFull() bool {
+	return len(sp.pool) == sp.maxPoolSize
 }
 
 /* helpers ---------------------------------------------------------------- */

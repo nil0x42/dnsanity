@@ -91,7 +91,8 @@ func DNSanitize(
 
     // init server pool
 	poolSize := min(len(serverIPs), max(1, min(globRateLimit, maxThreads*2)))
-	pool := NewServerPool(serverIPs, checks, poolSize, reqInterval, maxAttempts)
+	maxPoolSize := poolSize * 3
+	pool := NewServerPool(serverIPs, checks, poolSize, maxPoolSize, reqInterval, maxAttempts)
 	status.WithLock(func () {
 		status.PoolSize = poolSize
 		status.NumServersInPool = len(pool.pool)
@@ -142,8 +143,11 @@ func scheduleChecks(
 				if srv.Finished() {
 					status.ReportFinishedServer(srv) // report server
 					pool.Unload(res.SlotID) // drop server from pool
+					// if
+					// len(pool.pool) >= pool.defaultPoolSize ||
+					// pool.LoadN(1) == 0 {
 					if
-					len(pool.pool) >= pool.defaultPoolSize ||
+					len(pool.pool) >= pool.maxPoolSize ||
 					pool.LoadN(1) == 0 {
 						status.WithLock(func () {
 							status.NumServersInPool = len(pool.pool)
@@ -193,11 +197,11 @@ func scheduleChecks(
 		// 4) refill pool if we have RPS budget and nothing scheduled --------
 		if numScheduled == 0 {
 			availableReqs := globRateLimiter.Remaining()
-			if availableReqs > 0 && pool.NumPending() > 0 {
-				pool.LoadN(availableReqs)
+			if availableReqs > 0 && pool.NumPending() > 0 && !pool.IsFull() {
+				inserted := pool.LoadN(availableReqs)
 				status.Debug(
 					"expand pool by %d. newsz=%d",
-					availableReqs, len(pool.pool))
+					inserted, len(pool.pool))
 				status.WithLock(func () {
 					status.PoolSize = max(status.PoolSize, len(pool.pool))
 					status.NumServersInPool = len(pool.pool)
