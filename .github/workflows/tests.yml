@@ -49,10 +49,17 @@ jobs:
 
       # Push coverage to Codecov
       - uses: codecov/codecov-action@v5
-        name: Upload to Codecov
+        name: Upload coverage to Codecov
         with:
           token: ${{ secrets.CODECOV_TOKEN }}    # Set this secret in repo settings
           files: coverage.out
           flags: unit,${{ matrix.os }},go${{ matrix.go }}
           fail_ci_if_error: true
           verbose: true
+
+      # Push coverage to qlty.sh
+      - uses: qltysh/qlty-action/coverage@v1
+        name: Upload coverage to qlty.sh
+        with:
+          token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+          files: coverage.out
