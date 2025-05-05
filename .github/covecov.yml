@@ -1,0 +1,30 @@
+# Codecov configuration for DNSanity
+codecov:
+  notify:
+    require_ci_to_pass: yes      # Only notify when CI succeeds
+
+coverage:
+  precision: 2                  # Two‑digit percentage precision
+  round: down
+  range: "75...100"             # Acceptable project coverage range
+  threshold: 1%                 # Allow 1 % drop before failing
+
+  status:
+    project: yes                # Global project status
+    patch: yes                  # Status for new/modified code
+    changes: no                 # Ignore “lines changed” status
+    ignore:                     # Extra ignore list for status calculation
+      - "integration/release/*"
+      - "binaries/*"
+
+comment:
+  # Compact layout that still shows the essentials
+  layout: "condensed_header, diff, flags, condensed_files, condensed_footer"
+  behavior: default
+  require_changes: no           # Post a comment even if coverage unchanged
+
+ignore:
+  # Ignore pre‑compiled binaries and release scripts
+  - "**/binaries/*"
+  - "integration/release/*"
+  - "integration/tests/dnsanity_bin"

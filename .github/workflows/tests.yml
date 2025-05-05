@@ -1,0 +1,58 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Operating systems to test on
+        os: [ ubuntu-24.04, ubuntu-22.04, macos-15, macos-13 ]
+        # Go versions to validate against
+        go: [ '1.22', '1.21' ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+
+    steps:
+      # Checkout repository
+      - uses: actions/checkout@v4
+        name: Checkout sources
+
+      # Set up Go environment
+      - uses: actions/setup-go@v5
+        name: Install Go
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true           # Module and build cache
+
+      # Run unit & integration tests with race detector and coverage
+      - name: Run tests
+        env:
+          CGO_ENABLED: 1        # Needed for -race support
+        run: |
+          go test ./... -race -covermode=atomic -coverprofile=coverage.out
+          # Print a quick coverage summary
+          go tool cover -func=coverage.out | sort -r -k3 | head -n 20
+
+      # Upload coverage file as CI artifact
+      - uses: actions/upload-artifact@v4
+        name: Upload coverage artifact
+        with:
+          name: coverage-${{ matrix.os }}-go${{ matrix.go }}
+          path: coverage.out
+
+      # Push coverage to Codecov
+      - uses: codecov/codecov-action@v5
+        name: Upload to Codecov
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}    # Set this secret in repo settings
+          files: coverage.out
+          flags: unit,${{ matrix.os }},go${{ matrix.go }}
+          fail_ci_if_error: true
+          verbose: true
