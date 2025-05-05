@@ -1,7 +1,6 @@
 package dns
 
 import (
-	"sort"
 	"strings"
 	"time"
 	"context"
@@ -52,8 +51,6 @@ func ResolveDNS(
 				answer.CNAME = append(answer.CNAME, record.Target)
 			}
 		}
-		sort.Strings(answer.A)
-		sort.Strings(answer.CNAME)
 		// special case: aldkjasdlskj.invalid.com
 		// 1.1.1.1 returns NOERROR, instead of SERVFAIL when there are no results but tld exists
 		// so we force a NOERROR with no results to return SERVFAIL for consistence
