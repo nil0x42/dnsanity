@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.24.2
 
 require (
+	github.com/google/goterm v0.0.0-20200907032337-555d40f16ae2
 	github.com/miekg/dns v1.1.65
 	golang.org/x/sys v0.32.0
 	golang.org/x/term v0.31.0
