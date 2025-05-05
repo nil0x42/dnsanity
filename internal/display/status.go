@@ -98,6 +98,9 @@ type Status struct {
 	// --- spinner state --------------------------------------------------
     Spinner				[][]string // frames
     curSpinnerID		int        // current spinner frame
+
+	// ETA / remaining time
+	startTime			time.Time
 }
 
 func NewStatus(
@@ -116,7 +119,7 @@ func NewStatus(
 	debugActivated	bool,
 	debugFilePrefixStr string,
 ) *Status {
-	prefix := fmt.Sprintf("\n\033[1;97m* %s:\033[2;37m\n", msg)
+	prefix := fmt.Sprintf("\n\033[1;97m* %-45s\033[2;37m⏳%%s\n", msg)
 	prefix += fmt.Sprintf(
 		"Run: %d servers * %d tests (max %d req/s, %d threads)\n",
 		numServers, numTests, globRateLimit, maxThreads,
@@ -154,6 +157,7 @@ func NewStatus(
 		Spinner:			defaultSpinner,
 		DebugActivated:		debugActivated,
 		DebugFilePrefixStr:	debugFilePrefixStr, // to show template before 1st svr.PrettyDump()
+		startTime:			time.Now(),
 	}
 	if s.TTYFile != nil {
 		s.hasPBar = true
@@ -395,6 +399,39 @@ func (s *Status) addPBarSpinner(bar string) string {
 	return strings.Join(lines, "\n")
 }
 
+func (s *Status) remainingTime() string {
+	rateFromReqs := float64(s.DoneChecks) / float64(s.TotalChecks)
+	rateFromSrvs := float64(s.ValidServers + s.InvalidServers) / float64(s.TotalServers)
+	rate := (rateFromReqs + rateFromSrvs + rateFromSrvs) / 3.0 // average from both sources
+	if rate <= 0 {
+		return "--" // unknown at start
+	}
+	elapsed := time.Since(s.startTime)
+	totalExpected := time.Duration(float64(elapsed) / rate)
+	remaining := totalExpected - elapsed
+	if remaining < 0 {               // peut happend at the end
+		remaining = 0
+	}
+	// --- human‑friendly formatting ----------------------------------------
+    secs := int(remaining.Seconds() + 0.5) // round half‑up
+    if secs < 60 {
+        return "<1m"
+    }
+    mins   := secs / 60
+    days   := mins / (24 * 60)
+    hours  := (mins / 60) % 24
+    minute := mins % 60
+    switch {
+    case days > 0:
+        // “3d 4h” is compact enough; add minutes if <1h granularity required.
+        return fmt.Sprintf("%dd %dh", days, hours)
+    case hours > 0:
+        return fmt.Sprintf("%dh %dm", hours, minute)
+    default:
+        return fmt.Sprintf("%dm", minute)
+    }
+}
+
 func (s *Status) updatePBar() {
 	okStr := fmt.Sprintf(
 		"OK: %d (%d%%)",
@@ -412,6 +449,7 @@ func (s *Status) updatePBar() {
 		"%d%% done (%d/%d)\n" +
 		"│\033[32m%-22s\033[2;37m%6d req/s\033[31m%26s\033[2;37m│\n" +
 		"│%s%s│\033[0m",
+		s.remainingTime(),
 		s.NumServersInPool, s.PoolSize,
 		int(scaleValue(s.DoneChecks, s.TotalChecks, 100)),
 		s.DoneChecks, s.TotalChecks,
