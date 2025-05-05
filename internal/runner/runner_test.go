@@ -1,85 +1,92 @@
-// Fichier: internal/runner/runner_test.go
+// File: internal/runner/runner_test.go
+// Package‑level tests for runner.RunAndReport
 
 package runner
 
 import (
-    "bytes"
-    "os"
-    "strings"
-    "testing"
+	"bytes"
+	"strings"
+	"testing"
 
-    "github.com/nil0x42/dnsanity/internal/dns"
+	"github.com/nil0x42/dnsanity/internal/dns"
 )
 
-// helper to capture os.Stderr
-func captureStderrRunner(f func()) string {
-    backupStderr := os.Stderr
-    r, w, _ := os.Pipe()
-    os.Stderr = w
+// TestRunAndReport_DebugFlag confirms that the debug switch is propagated.
+func TestRunAndReport_DebugFlag(t *testing.T) {
+	t.Parallel()
 
-    f()
+	dummyTemplate := []dns.DNSAnswer{
+		{Domain: "example.com", Status: "NXDOMAIN"},
+	}
 
-    w.Close()
-    var buf bytes.Buffer
-    _, _ = buf.ReadFrom(r)
-    os.Stderr = backupStderr
-    return buf.String()
+	var dbg bytes.Buffer
+	st := RunAndReport(
+		"unit-debug",
+		[]string{"0.0.0.0"},
+		dummyTemplate,
+		5, 1, 100, 1, 0, 1,
+		true,          // debug ON
+		nil, &dbg, nil,
+	)
+	if !st.DebugActivated {
+		t.Fatal("DebugActivated should be true when debug flag is set")
+	}
+	expected := []string{
+		"[-] SERVER 0.0.0.0 (invalid)",
+		"example.com ECONNREFUSED",
+	}
+	dbgStr := dbg.String()
+	for _, exp := range expected {
+		if !strings.Contains(dbgStr, exp) {
+			t.Fatalf("expected data: %v\nDBG=%q", exp, dbgStr)
+		}
+	}
 }
 
-// mock DNSAnswer for testing
-var mockTests = []dns.DNSAnswer{
-    {Domain: "example.com", Status: "NOERROR"},
-    {Domain: "invalid.tld", Status: "NXDOMAIN"},
-}
+// TestRunAndReport_PrefixVariants exercises all prefix branches.
+func TestRunAndReport_PrefixVariants(t *testing.T) {
+	t.Parallel()
 
-func TestRunAndReport(t *testing.T) {
-    output := captureStderrRunner(func() {
-        // The function returns the server states
-        srvStates := RunAndReport(
-            "\033[0;32m",        // color
-            "Testing servers",   // message
-            false,              // verbose
-            []string{"8.8.8.8", "1.1.1.1"}, // servers
-            mockTests,          // tests
-            50,                 // globRateLimit
-            10,                 // maxThreads
-            2,                  // rateLimit
-            2,                  // timeout
-            0,                  // maxFailures => drop on first fail
-            2,                  // maxAttempts
-        )
-        if len(srvStates) != 2 {
-            t.Errorf("Expected 2 server states, got %d", len(srvStates))
-        }
-    })
-    // check that it prints the "Testing servers" message
-    if !strings.Contains(output, "Testing servers") {
-        t.Errorf("Expected 'Testing servers' in output, got:\n%s", output)
-    }
-}
+	dummyTemplate := []dns.DNSAnswer{
+		{Domain: "example.com", Status: "NXDOMAIN"},
+	}
 
-func TestRunAndReportVerbose(t *testing.T) {
-    output := captureStderrRunner(func() {
-        _ = RunAndReport(
-            "\033[0;34m",
-            "Verbose test",
-            true, // verbose
-            []string{"8.8.8.8"},
-            mockTests,
-            10,
-            5,
-            2,
-            2,
-            -1, // never disable server
-            1,
-        )
-    })
-    // if verbose is true, we expect some lines describing config
-    if !strings.Contains(output, "Run: 1 servers * 2 tests") {
-        t.Errorf("Expected verbose output with '1 servers * 2 tests', got:\n%s", output)
-    }
-    if !strings.Contains(output, "Each server: max 2 req/s, never dropped.") {
-        t.Errorf("Expected 'never dropped' message for maxFailures = -1, got:\n%s", output)
-    }
-}
+	cases := []struct {
+		name        string
+		maxFailures int
+		expectSub   string
+	}{
+		{"dropOnFirstFail", 0, "dropped if any test fails"},
+		{"neverDropped", -1, "never dropped"},
+		{"customDrop", 3, "dropped if >3 tests fail"},
+	}
 
+	for _, tc := range cases {
+		tc := tc // capture
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			st := RunAndReport(
+				"prefix-check",
+				[]string{"0.0.0.0"},
+				dummyTemplate,   // one dummy test (len != 0 to vary totals)
+				20, 1, 100, 1,
+				tc.maxFailures,
+				1,
+				false,
+				&out, nil, nil,
+			)
+			if !strings.Contains(st.PBarPrefixData, tc.expectSub) {
+				t.Errorf("prefix missing %q\n%s", tc.expectSub, st.PBarPrefixData)
+			}
+			if tc.name == "dropOnFirstFail" {
+				if out.Len() != 0 {
+					t.Errorf("outfile must stay empty (got %d bytes)", out.Len())
+				}
+			} else {
+				if out.String() != "0.0.0.0\n" {
+					t.Errorf("outfile must have server 0.0.0.0")
+				}
+			}
+		})
+	}
+}
