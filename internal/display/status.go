@@ -101,6 +101,8 @@ type Status struct {
 
 	// ETA / remaining time
 	startTime			time.Time
+
+	CacheStr string
 }
 
 func NewStatus(
@@ -212,7 +214,8 @@ func (s *Status) fWrite(
 		str += "\n"
 	}
 	if s.hasPBar && tty.IsTTY(file) {
-		io.WriteString(s.TTYFile, s.PBarEraseData + str + s.PBarData)
+		s.CacheStr += str
+		// s.TTYFile.WriteString(s.PBarEraseData + str + s.PBarData)
 	} else {
 		// Only strip ANSI colors if file is NOT a bytes.Buffer:
 		if _, ok := file.(*bytes.Buffer); !ok {
@@ -466,12 +469,13 @@ func (s *Status) UpdateAndRedrawPBar() {
 	defer s.mu.Unlock()
 
 	s.updatePBar()
-	s.TTYFile.WriteString(s.PBarEraseData + s.PBarData)
+	s.TTYFile.WriteString(s.PBarEraseData + s.CacheStr + s.PBarData)
+	s.CacheStr = ""
 }
 
 func (s *Status) Stop() {
 	close(s.quit)
 	s.redrawTicker.Stop()
 	s.updatePBar()
-	s.TTYFile.WriteString(s.PBarEraseData + s.PBarData + "\n\n")
+	s.TTYFile.WriteString(s.PBarEraseData + s.CacheStr + s.PBarData + "\n\n")
 }
