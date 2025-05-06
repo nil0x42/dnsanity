@@ -3,7 +3,7 @@
 <h3 align="center">
     Quickly validate DNS servers at scale
     <a href="https://twitter.com/intent/tweet?text=DNSanity%3A%20validate%20massive%20lists%20of%20DNS%20resolvers%20at%20scale%20%28for%20recon%20%26%20DNS%20bruteforcing%29%20-%20by%20%40nil0x42&url=https://github.com/nil0x42/dnsanity">
-      <img src="https://img.shields.io/twitter/url?label=tweet&logo=twitter&style=social&url=http%3A%2F%2F0" alt="tweet">
+      <img src="https://img.shields.io/twitter/url?url=http%3A%2F%2F0" alt="tweet">
     </a>
 </h3>
 <br>
@@ -33,8 +33,8 @@
   <a href="https://qlty.sh/gh/nil0x42/projects/dnsanity">
     <img src="https://qlty.sh/badges/5654c96f-f352-4920-b5d1-59dd933171f1/maintainability.svg" alt="Qlty maintainability">
   </a>
-  <a href="https://twitter.com/intent/follow?screen_name=nil0x42" target="_blank">
-    <img src="https://img.shields.io/twitter/follow/nil0x42.svg?logo=twitter" akt="follow on twitter">
+  <a href="https://x.com/intent/follow?screen_name=nil0x42" target="_blank">
+    <img src="https://img.shields.io/badge/Follow-@nil0x42-a10?logo=x" akt="Follow on X">
   </a>
 </p>
 
