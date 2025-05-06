@@ -9,10 +9,13 @@
 <br>
 
 <p align="center">
+  <a href="https://github.com/nil0x42/dnsanity/blob/master/.github/workflows/tests.yml#L18">
+    <img src="https://img.shields.io/badge/Go-v1.21+-blue.svg" alt="Go v1.21 compatible">
+  </a>
   <a href="https://github.com/nil0x42/dnsanity/actions/workflows/tests.yml?query=branch%3Amaster">
     <img src="https://img.shields.io/github/actions/workflow/status/nil0x42/dnsanity/tests.yml?label=tests&logo=githubactions" alt="Tests workflow">
   </a>
-  <a href="https://github.com/nil0x42/dnsanity/network/dependencies">
+  <a href="https://github.com/nil0x42/dnsanity/network/dependencies?q=ecosystem%3AGo">
     <img src="https://img.shields.io/badge/dependabot-ok-aaf?logo=dependabot&logoColor=aaf" alt="Dependabot status">
   </a>
   <a href="https://app.codacy.com/gh/nil0x42/dnsanity/dashboard">
@@ -47,38 +50,35 @@
 
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
-<img align="right" src=".github/images/demo.gif" width="60%"/>
-
 
 ### :book: Overview
 
 **DNSanity** is a fast DNS resolvers validator, offering deep **customization**
 and reliable **concurrency**.
 
-If you want to validate massive lists with speed and precision, we have you covered !
-
-- **Blazing-Fast**: Test thousand servers in parallel, with **global & per-server rate-limiting**.  
+- **Blazing-Fast**: Test thousand servers in parallel with **global & per-server rate-limiting**.  
 - **Flexible**: Easily write your own template for custom validation.  
 - **Reliable**: Automatic template re-validation before every usage.  
 
+<a href="https://github.com/nil0x42/dnsanity/releases/latest"><img align="right" src=".github/images/demo.gif" width="75%"/></a>
 <br>
 
 ### :arrows_clockwise: Workflow
 
-**Template Validation (step 1/2)**  
-Make sure template is still valid, matching it against trusted servers.
+**1 – Template Validation**  
+Run each template query against trusted DNS servers and ensure every answer matches the expected result.
 
-**Servers Sanitization (step 2/2)**  
-For each server, every template test is checked.
-If mismatches exceed threshold, server is dropped. Undropped
-servers are considered valid.
+**2 – Server Validation**  
+Run the same queries on every candidate server.  
+Reject any server that fails more checks than the allowed limit.
+
 
 <br>
 
 ### :bulb: Quick start
 
 ```bash
-go install github.com/nil0x42/dnsanity@latest   # go 1.22+ recommended
+go install github.com/nil0x42/dnsanity@latest   # go 1.21+ needed
 dnsanity --help                                 # show help
 dnsanity -list "untrustedDNS.txt" -o "out.txt"  # basic usage
 ```
