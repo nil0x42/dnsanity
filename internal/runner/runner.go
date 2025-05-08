@@ -13,9 +13,9 @@ import (
 
 
 func RunAndReport(
-	msg string, 
+	msg string,
 	serverIPs []string,
-	tests []dns.DNSAnswer,
+	template dns.Template,
 	globRateLimit int,
 	maxThreads int,
 	rateLimit int,
@@ -31,7 +31,7 @@ func RunAndReport(
 	status := display.NewStatus(
 		msg,
 		len(serverIPs),
-		len(tests),
+		len(template),
 		globRateLimit,
 		maxThreads,
 		rateLimit,
@@ -42,12 +42,12 @@ func RunAndReport(
 		debugFile,
 		ttyFile,
 		debug,
-		dns.PrettyDumpTemplate(tests),
+		template.PrettyDump(),
 	)
 
 	dnsanitize.DNSanitize(
 		serverIPs,
-		tests,
+		template,
 		globRateLimit,
 		maxThreads,
 		rateLimit,

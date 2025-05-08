@@ -16,7 +16,7 @@ type Config struct {
 	Opts             *Options
 	TrustedDnsList   []string
 	UntrustedDnsList []string
-	Template         []dns.DNSAnswer
+	Template         dns.Template
 	OutputFile       *os.File
 }
 
@@ -43,10 +43,9 @@ func Init() *Config {
 	}
 
 	if opts.Template == "" {
-		// use default template
-		conf.Template, err = dns.DNSAnswerSliceFromString(DEFAULT_TEMPLATE)
+		conf.Template, err = dns.NewTemplate(DEFAULT_TEMPLATE)
 	} else {
-		conf.Template, err = dns.DNSAnswerSliceFromFile(opts.Template)
+		conf.Template, err = dns.NewTemplateFromFile(opts.Template)
 	}
 	if err != nil {
 		exitUsage("-template: %w", err)
@@ -55,10 +54,7 @@ func Init() *Config {
 	if opts.UntrustedDNS == "" {
 		if tty.IsTTY(os.Stdin) {
 			if opts.Verbose || opts.Template != "" {
-				fmt.Fprintf(
-					os.Stderr, "%s\n",
-					dns.PrettyDumpTemplate(conf.Template),
-				)
+				fmt.Fprintf(os.Stderr, "%s\n", conf.Template.PrettyDump())
 			}
 			exitUsage("-list: Required unless passed through STDIN")
 		}

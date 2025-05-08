@@ -31,7 +31,7 @@ type QueryScheduler struct {
 
 func runDNSWorker(
 	serverIP	string, // IP address
-	check		*dns.DNSAnswer, // template check
+	check		*dns.TemplateEntry, // template check
 	slotID		int, // server ID (index within pool)
 	checkID		int, // check ID (index)
 	timeout		time.Duration, // DNS query timeout
@@ -44,7 +44,7 @@ func runDNSWorker(
 		SlotID:			slotID,
 		CheckID:		checkID,
 		Answer:			*answer,
-		Passed:			check.Equals(answer),
+		Passed:			check.Matches(answer),
 	}
 	<- sched.ConcurrencyLimiter
 }
@@ -54,7 +54,7 @@ func runDNSWorker(
 // ---------------------------------------------------------------------------
 func DNSanitize(
 	serverIPs		[]string, // IP of DNS servers to test
-	checks			[]dns.DNSAnswer, // checks from template
+	template		dns.Template, // checks from template
 	globRateLimit	int, // global rate limit (max rps)
 	maxThreads		int, // global limit of concurrent goroutines
 	rateLimit		int, // per-server rate limit (max rps)
@@ -67,7 +67,7 @@ func DNSanitize(
 	maxAttempts = max(maxAttempts, 1)
 
 	// limit maxThreads to total tests
-	maxThreads = min(maxThreads, len(serverIPs) * len(checks))
+	maxThreads = min(maxThreads, len(serverIPs) * len(template))
 
 	// create reqInterval => min interval between 2 reqs per server
 	reqInterval := time.Duration(0)
@@ -91,8 +91,8 @@ func DNSanitize(
 
     // init server pool
 	poolSize := min(len(serverIPs), max(1, min(globRateLimit, maxThreads*2)))
-	maxPoolSize := poolSize * 3
-	pool := NewServerPool(serverIPs, checks, poolSize, maxPoolSize, reqInterval, maxAttempts)
+	maxPoolSize := max(poolSize * 2, 1000)
+	pool := NewServerPool(serverIPs, template, poolSize, maxPoolSize, reqInterval, maxAttempts)
 	status.WithLock(func () {
 		status.PoolSize = poolSize
 		status.NumServersInPool = len(pool.pool)
@@ -105,7 +105,7 @@ func DNSanitize(
 
 	// Run the scheduling loop to fill out servers
 	scheduleChecks(
-		pool, checks, sched,
+		pool, template, sched,
 		globRateLimiter, reqInterval,
 		timeoutDuration, maxFailures,
 		status,
@@ -119,7 +119,7 @@ func DNSanitize(
 // observes concurrency limits, rate limits, and failure thresholds.
 func scheduleChecks(
 	pool			*ServerPool,
-	checks			[]dns.DNSAnswer, // template checks
+	template		dns.Template, // template checks
 	sched			QueryScheduler, // query scheduler
 	globRateLimiter	*TokenBucket, // global rate limiter
 	reqInterval		time.Duration, // min interval between 2 reqs per server
@@ -175,7 +175,7 @@ func scheduleChecks(
 				srv.PendingChecks = srv.PendingChecks[1:]
 				sched.waitGroup.Add(1)
 				go runDNSWorker(
-					srv.IPAddress, &checks[CheckID],
+					srv.IPAddress, &template[CheckID],
 					slotID, CheckID, timeout, &sched, srv.Ctx,
 				)
 				srv.NextQueryAt = now.Add(reqInterval)

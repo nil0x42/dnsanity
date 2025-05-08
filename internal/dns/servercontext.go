@@ -7,7 +7,7 @@ import (
 )
 
 type CheckContext struct {
-	Answer              DNSAnswer  // last received answer
+	Answer              DNSAnswer      // last received answer
 	Passed              bool           // last attempt result
 	AttemptsLeft        int            // retries remaining
 	MaxAttempts         int            // immutable upper bound

@@ -11,7 +11,7 @@ import (
 // All methods are single-goroutine – no mutex needed.
 type ServerPool struct {
 	/* immutable ----------------------------------------------------------- */
-	template    []dns.DNSAnswer        // checks
+	template    dns.Template           // checks
 	reqInterval time.Duration          // min delay per server
 	maxAttempts int                    // attempts per check
 
@@ -30,7 +30,7 @@ type ServerPool struct {
 // NewServerPool clones todoList and instantly fills the pool.
 func NewServerPool(
 	todoList    []string,
-	template    []dns.DNSAnswer,
+	template    dns.Template,
 	poolSize    int,
 	maxPoolSize int,
 	reqInterval time.Duration,
@@ -113,12 +113,12 @@ func (sp *ServerPool) newServerContext(ip string) *dns.ServerContext {
 		PendingChecks:  make([]int, len(sp.template)),
 		Checks:         make([]dns.CheckContext, len(sp.template)),
 	}
-	for j := range sp.template {
-		sc.PendingChecks[j] = j
-		sc.Checks[j].Answer.Domain = sp.template[j].Domain
-		sc.Checks[j].Answer.Status = "SKIPPED"
-		sc.Checks[j].AttemptsLeft = sp.maxAttempts
-		sc.Checks[j].MaxAttempts = sp.maxAttempts
+	for i := range sp.template {
+		sc.PendingChecks[i] = i
+		sc.Checks[i].Answer.Domain = sp.template[i].Domain
+		sc.Checks[i].Answer.Status = "SKIPPED"
+		sc.Checks[i].AttemptsLeft = sp.maxAttempts
+		sc.Checks[i].MaxAttempts = sp.maxAttempts
 	}
 	return sc
 }

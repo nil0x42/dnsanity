@@ -21,8 +21,10 @@ func ResolveDNS(
 	}
 
 	message := &dns.Msg{}
+	message.SetEdns0(1232, false)
+	// // message.SetEdns0(4096, false)
+	// message.SetEdns0(65535, false)
 	message.SetQuestion(dns.Fqdn(domain), dns.TypeA) // A record
-	message.SetEdns0(4096, false)
 
 	// init DNSAnswer
 	answer := &DNSAnswer{}
@@ -36,7 +38,8 @@ func ResolveDNS(
 		} else if strings.HasSuffix(err.Error(), "read: connection refused") {
 			answer.Status = "ECONNREFUSED"
 		} else if strings.HasSuffix(err.Error(), "connect: network is unreachable") {
-			answer.Status = "NO_INTERNET"
+			answer.Status = "ENETUNREACH (no internet)"
+			// answer.Status = "NO_INTERNET"
 		} else {
 			answer.Status = "ERROR - " + err.Error()
 		}
@@ -51,14 +54,10 @@ func ResolveDNS(
 				answer.CNAME = append(answer.CNAME, record.Target)
 			}
 		}
-		// special case: aldkjasdlskj.invalid.com
-		// 1.1.1.1 returns NOERROR, instead of SERVFAIL when there are no results but tld exists
-		// so we force a NOERROR with no results to return SERVFAIL for consistence
-		if len(answer.A) == 0 && len(answer.CNAME) == 0 {
-			answer.Status = "SERVFAIL"
-		} else {
-			answer.Status = "NOERROR"
-		}
+		answer.Status = "NOERROR"
+	}
+	if err == nil {
+		answer.Truncated = response.Truncated
 	}
 	return answer
 }

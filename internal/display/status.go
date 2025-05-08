@@ -1,18 +1,5 @@
 package display
 
-//             VALIDATION                                  SANITIZATION
-
-// --verbose             no-verbose              --verbose               no-verbose
-// DebugFile->stringIO   DebugFile->stringIO     DebugFile->STDERR       DebugFile->DEVNULL
-// OutFile->DEVNULL      OutFile->DEVNULL        OutFile->OUTFILE        OutFile->OUTFILE
-
-// * Servers sanitization (step 2/2):
-//   Run: 300 servers * 21 tests (max 500 req/s, 1000 jobs)
-//   Each server: max 2 req/s, dropped if any test fails
-//   Each test: 4s timeout, max 2 attempts, 100% done (845550/850000)
-//   │OK: 315 (15%)        500 req/s           KO: 85000 (95%)|
-//   │⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧  ⢹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿│
-
 import (
 	"sync"
 	"fmt"
@@ -214,7 +201,7 @@ func (s *Status) fWrite(
 		str += "\n"
 	}
 	if s.hasPBar && tty.IsTTY(file) {
-		s.CacheStr += str
+		s.CacheStr += str // add to cache (printed/flushed at next redraw)
 		// s.TTYFile.WriteString(s.PBarEraseData + str + s.PBarData)
 	} else {
 		// Only strip ANSI colors if file is NOT a bytes.Buffer:
@@ -267,11 +254,11 @@ func (s *Status) Debug(format string, args ...interface{}) {
 }
 
 
-// makeBar renders a 56‑rune progress bar composed of Braille blocks.
+// makeBar renders a 60‑rune progress bar composed of Braille blocks.
 // The green (left) segment represents valid servers, the red (right)
 // segment represents invalid ones.  The bar is built from rune slices so
 // any trimming removes entire UTF‑8 glyphs, never partial bytes.  When the
-// bar would overflow 56 runes, the side that is only one rune wide (if any)
+// bar would overflow 60 runes, the side that is only one rune wide (if any)
 // is preserved and the opposite side is shortened by exactly one rune.
 func (s *Status) makeBar() string {
 	const (
@@ -313,7 +300,7 @@ func (s *Status) makeBar() string {
 	extraInvalid := invalidPts % ptsPerChr
 
 	// --- overflow correction (rune‑level) ---------------------------------
-	if len(validRunes)+len(invalidRunes) > totalChrs {
+	if len(validRunes) + len(invalidRunes) > totalChrs {
 		switch {
 		case len(validRunes) >= 2 && len(invalidRunes) >= 2:
 			if extraValid >= extraInvalid {
@@ -339,11 +326,14 @@ func (s *Status) makeBar() string {
 			invalidRunes[i] = '⣿'
 		}
 	}
-	if len(validRunes)+len(invalidRunes) > totalChrs {
+	if len(validRunes) + len(invalidRunes) > totalChrs {
 		panic("xxx")
 	}
 	// Assemble with ANSI colours.
-	spaces := strings.Repeat(" ", totalChrs - (len(validRunes) + len(invalidRunes)))
+	spaces := strings.Repeat(
+		" ",
+		totalChrs - (len(validRunes) + len(invalidRunes)),
+	)
 	return "\033[32m" + string(validRunes) + spaces +
 	"\033[31m" + string(invalidRunes)
 }
@@ -405,9 +395,10 @@ func (s *Status) addPBarSpinner(bar string) string {
 func (s *Status) remainingTime() string {
 	rateFromReqs := float64(s.DoneChecks) / float64(s.TotalChecks)
 	rateFromSrvs := float64(s.ValidServers + s.InvalidServers) / float64(s.TotalServers)
-	rate := (rateFromReqs + rateFromSrvs + rateFromSrvs) / 3.0 // average from both sources
-	if rate <= 0 {
-		return "--" // unknown at start
+	// arbiter from both sources (with double weight for rateFromSrvs):
+	rate := (rateFromReqs + rateFromSrvs + rateFromSrvs) / 3.0
+	if rate < 0.001 {
+		return "--" // unknown before 0.1% progress
 	}
 	elapsed := time.Since(s.startTime)
 	totalExpected := time.Duration(float64(elapsed) / rate)
@@ -478,4 +469,5 @@ func (s *Status) Stop() {
 	s.redrawTicker.Stop()
 	s.updatePBar()
 	s.TTYFile.WriteString(s.PBarEraseData + s.CacheStr + s.PBarData + "\n\n")
+	s.CacheStr = ""
 }
