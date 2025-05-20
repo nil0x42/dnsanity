@@ -26,6 +26,29 @@ type ServerContext struct {
 	Checks              []CheckContext // answers log
 }
 
+func NewServerContext(
+	ipAddress	string,
+	template	Template,
+	maxAttempts	int, // max attempts per check
+) *ServerContext {
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	sc := &ServerContext{
+		Ctx:			ctx,
+		CancelCtx:		cancelCtx,
+		IPAddress:      ipAddress,
+		PendingChecks:  make([]int, len(template)),
+		Checks:         make([]CheckContext, len(template)),
+	}
+	for i := range template {
+		sc.PendingChecks[i] = i
+		sc.Checks[i].Answer.Domain = template[i].Domain
+		sc.Checks[i].Answer.Status = "SKIPPED"
+		sc.Checks[i].AttemptsLeft = maxAttempts
+		sc.Checks[i].MaxAttempts = maxAttempts
+	}
+	return sc
+}
+
 // Finished returns true when the server is either disabled or has
 // completed all its checks.
 // ServerContext.Finished():

@@ -1,15 +1,12 @@
 package config
 
 import (
-	// standard
 	"os"
 	"bufio"
 	"fmt"
 	"net"
 	"strings"
 	"errors"
-	// external
-	// local
 )
 
 

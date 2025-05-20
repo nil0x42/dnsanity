@@ -19,8 +19,8 @@ type Options struct {
 	Timeout          int
 	TrustedTimeout   int
 	GlobRateLimit	 int
-	Ratelimit        int
-	TrustedRatelimit int
+	RateLimit        int
+	TrustedRateLimit int
 	Attempts         int
 	MaxMismatches    int
 	TrustedAttempts  int
@@ -154,14 +154,14 @@ func ParseOptions() (*Options, error) {
 	// SERVER SANITIZATION
 	flag.StringVar(&opts.UntrustedDNS, "list", "", "list of DNS servers to sanitize (file or comma separated or stdin)")
 	flag.IntVar(&opts.Timeout, "timeout", 4, "timeout in seconds for DNS queries")
-	flag.IntVar(&opts.Ratelimit, "ratelimit", 2, "max requests per second per DNS server")
+	flag.IntVar(&opts.RateLimit, "ratelimit", 2, "max requests per second per DNS server")
 	flag.IntVar(&opts.Attempts, "max-attempts", 2, "max attempts before marking a mismatching DNS test as failed")
 	flag.IntVar(&opts.MaxMismatches, "max-mismatches", 0, "max allowed mismatching tests per DNS server")
 	// TEMPLATE VALIDATION
 	flag.StringVar(&opts.Template, "template", "", "path to the DNSanity validation template")
 	flag.StringVar(&opts.TrustedDNS, "trusted-list", "8.8.8.8, 1.1.1.1, 9.9.9.9", "list of TRUSTED servers")
 	flag.IntVar(&opts.TrustedTimeout, "trusted-timeout", 2, "timeout in seconds for TRUSTED servers")
-	flag.IntVar(&opts.TrustedRatelimit, "trusted-ratelimit", 10, "max requests per second per TRUSTED server")
+	flag.IntVar(&opts.TrustedRateLimit, "trusted-ratelimit", 10, "max requests per second per TRUSTED server")
 	flag.IntVar(&opts.TrustedAttempts, "trusted-max-attempts", 2, "max attempts before marking a mismatching TRUSTED test as failed")
 	// DEBUG
 	flag.BoolVar(&opts.ShowHelp, "h", false, "show help")

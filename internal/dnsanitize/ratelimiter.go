@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// TokenBucket implements a high-performance token bucket rate limiter
+// RateLimiter implements a high-performance token bucket rate limiter
 // using Go 1.19 atomic wrappers. It guarantees zero mutex usage,
 // idempotent start/stop, and strict parameter validation.
-type TokenBucket struct {
+type RateLimiter struct {
 	tokens         atomic.Uint64  // current number of available tokens
 	maxTokens      atomic.Uint64  // maximum number of tokens (burst capacity)
 	refillAmount   atomic.Uint64  // tokens added each interval
@@ -23,9 +23,9 @@ type TokenBucket struct {
 	cancel    context.CancelFunc // cancellation function
 }
 
-// NewTokenBucket creates a new TokenBucket given a desired rate (RPS) and burst duration.
+// NewRateLimiter creates a new RateLimiter given a desired rate (RPS) and burst duration.
 // It panics if parameters are invalid or lead to impossible internal values.
-func NewTokenBucket(globalRateLimit uint64, burstTime time.Duration) *TokenBucket {
+func NewRateLimiter(globalRateLimit int, burstTime time.Duration) *RateLimiter {
 	// validate inputs
 	if globalRateLimit < 1 {
 		panic("dnsanitize: globalRateLimit must be >= 1")
@@ -53,7 +53,7 @@ func NewTokenBucket(globalRateLimit uint64, burstTime time.Duration) *TokenBucke
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// build bucket
-	tb := &TokenBucket{
+	tb := &RateLimiter{
 		refillInterval: realInterval,
 		ctx:             ctx,
 		cancel:          cancel,
@@ -61,12 +61,13 @@ func NewTokenBucket(globalRateLimit uint64, burstTime time.Duration) *TokenBucke
 	tb.tokens.Store(refillAmount)
 	tb.maxTokens.Store(refillAmount)
 	tb.refillAmount.Store(refillAmount)
+	tb.startRefiller()
 	return tb
 }
 
 // StartRefiller begins a background goroutine that refills tokens at fixed intervals.
 // It is safe to call multiple times; the refiller will only start once.
-func (tb *TokenBucket) StartRefiller() {
+func (tb *RateLimiter) startRefiller() {
 	tb.startOnce.Do(func() {
 		ticker := time.NewTicker(tb.refillInterval)
 		go func() {
@@ -84,13 +85,13 @@ func (tb *TokenBucket) StartRefiller() {
 }
 
 // StopRefiller stops the background refill goroutine. It is safe to call multiple times.
-func (tb *TokenBucket) StopRefiller() {
+func (tb *RateLimiter) StopRefiller() {
 	// cancel is idempotent and thread-safe
 	tb.cancel()
 }
 
 // refillOnce performs a single refill operation with CAS loop and minimal backoff.
-func (tb *TokenBucket) refillOnce() {
+func (tb *RateLimiter) refillOnce() {
 	const maxSpins = 10
 	for spins := 0; ; spins++ {
 		old := tb.tokens.Load()
@@ -111,7 +112,7 @@ func (tb *TokenBucket) refillOnce() {
 
 // ConsumeOne attempts to remove one token. Returns true if successful.
 // This method is lock-free and non-blocking.
-func (tb *TokenBucket) ConsumeOne() bool {
+func (tb *RateLimiter) ConsumeOne() bool {
 	const maxSpins = 10
 	for spins := 0; ; spins++ {
 		old := tb.tokens.Load()
@@ -130,7 +131,7 @@ func (tb *TokenBucket) ConsumeOne() bool {
 
 // GiveBackOne returns one token back into the bucket if not already full.
 // This method is lock-free and non-blocking.
-func (tb *TokenBucket) GiveBackOne() {
+func (tb *RateLimiter) GiveBackOne() {
 	const maxSpins = 10
 	for spins := 0; ; spins++ {
 		old := tb.tokens.Load()
@@ -149,6 +150,6 @@ func (tb *TokenBucket) GiveBackOne() {
 }
 
 // Remaining returns the number of remaining reqs that can be done right now
-func (tb *TokenBucket) Remaining() int {
+func (tb *RateLimiter) Remaining() int {
 	return int(tb.tokens.Load())
 }

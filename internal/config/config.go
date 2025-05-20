@@ -14,8 +14,8 @@ import (
 
 type Config struct {
 	Opts             *Options
-	TrustedDnsList   []string
-	UntrustedDnsList []string
+	TrustedDNSList   []string
+	UntrustedDNSList []string
 	Template         dns.Template
 	OutputFile       *os.File
 }
@@ -37,7 +37,7 @@ func Init() *Config {
 		exitUsage("%w", err)
 	}
 
-	conf.TrustedDnsList, err = ParseServerList(opts.TrustedDNS)
+	conf.TrustedDNSList, err = ParseServerList(opts.TrustedDNS)
 	if err != nil {
 		exitUsage("-trusted-list: %w", err)
 	}
@@ -61,7 +61,7 @@ func Init() *Config {
 		opts.UntrustedDNS = "/dev/stdin"
 	}
 
-	conf.UntrustedDnsList, err = ParseServerList(opts.UntrustedDNS)
+	conf.UntrustedDNSList, err = ParseServerList(opts.UntrustedDNS)
 	if err != nil {
 		exitUsage("-list: %w", err)
 	}

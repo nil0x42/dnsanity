@@ -142,6 +142,7 @@ func nextPermutation(p []int) bool {
 // fmt.Println(globMatch("*.example.com", "test.example.com")) // true
 // fmt.Println(globMatch("*.example.com", "sub.test.com")) // false
 func globMatch(pattern, str string) bool {
+	pattern = strings.ToLower(pattern) // case insensitive
 	str = strings.ToLower(str) // case insensitive
 	if !strings.ContainsRune(pattern, '*') {
 		return pattern == str // most common case (no glob)

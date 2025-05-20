@@ -3,10 +3,10 @@ package dnsanitize
 import (
 	"sync"
 	"time"
-	"context"
 
+	"github.com/nil0x42/dnsanity/internal/config"
+	"github.com/nil0x42/dnsanity/internal/report"
 	"github.com/nil0x42/dnsanity/internal/dns"
-	"github.com/nil0x42/dnsanity/internal/display"
 )
 
 
@@ -16,116 +16,89 @@ import (
 
 // WorkerResult is used by goroutines to send back the final DNSAnswer.
 type WorkerResult struct {
-    SlotID              int           // server pool slot identifier
-    CheckID             int           // check index
-    Answer              dns.DNSAnswer // received answer
-    Passed              bool          // equals? result
+    SrvID		int					// srv id in pool
+    CheckID		int					// check index
+    Answer		dns.DNSAnswer		// received answer
+    Passed		bool				// equals? result
 }
 
 type QueryScheduler struct {
-	waitGroup           sync.WaitGroup
-	ConcurrencyLimiter  chan struct{}
-	Results             chan WorkerResult // worker results are sent here
+	waitGroup	sync.WaitGroup
+	JobLimiter	chan struct{}
+	RateLimiter	*RateLimiter
+	Results		chan WorkerResult // worker results are sent here
 }
 
-
 func runDNSWorker(
-	serverIP	string, // IP address
-	check		*dns.TemplateEntry, // template check
-	slotID		int, // server ID (index within pool)
-	checkID		int, // check ID (index)
-	timeout		time.Duration, // DNS query timeout
-	sched		*QueryScheduler, // query scheduleu
-	srvCtx		context.Context,
+	srv			*dns.ServerContext,	// server context
+	check		*dns.TemplateEntry,	// template check
+	srvID		int,				// server ID (in pool)
+	checkID		int,				// check ID (template index)
+	timeout		time.Duration,		// DNS query timeout
+	sched		*QueryScheduler,	// scheduler
 ) {
 	defer sched.waitGroup.Done()
-	answer := dns.ResolveDNS(check.Domain, serverIP, timeout, srvCtx)
+	answer := dns.ResolveDNS(check.Domain, srv.IPAddress, timeout, srv.Ctx)
 	sched.Results <- WorkerResult{
-		SlotID:			slotID,
+		SrvID:			srvID,
 		CheckID:		checkID,
 		Answer:			*answer,
 		Passed:			check.Matches(answer),
 	}
-	<- sched.ConcurrencyLimiter
+	<- sched.JobLimiter
 }
 
 // ---------------------------------------------------------------------------
 //  PUBLIC ENTRYPOINT --------------------------------------------------------
 // ---------------------------------------------------------------------------
 func DNSanitize(
-	serverIPs		[]string, // IP of DNS servers to test
-	template		dns.Template, // checks from template
-	globRateLimit	int, // global rate limit (max rps)
-	maxThreads		int, // global limit of concurrent goroutines
-	rateLimit		int, // per-server rate limit (max rps)
-	timeout			int, // max seconds before DNS query timeout
-	maxFailures		int, // max allowed non-passing checks per server
-	maxAttempts		int, // max attempts per check before failure
-	status			*display.Status,
+	s		*config.Settings,
+	status	*report.StatusReporter,
 ) {
-
-	maxAttempts = max(maxAttempts, 1)
-
-	// limit maxThreads to total tests
-	maxThreads = min(maxThreads, len(serverIPs) * len(template))
-
-	// create reqInterval => min interval between 2 reqs per server
-	reqInterval := time.Duration(0)
-	if rateLimit > 0 {
-		reqInterval = time.Second / time.Duration(rateLimit)
+	maxAttempts := max(s.PerCheckMaxAttempts, 1)
+	maxThreads := min(s.MaxThreads, len(s.ServerIPs) * len(s.Template))
+	srvReqInterval := time.Duration(0)
+	if s.PerSrvRateLimit > 0 {
+		srvReqInterval = time.Second / time.Duration(s.PerSrvRateLimit)
 	}
-
-	// if maxFailures is -1 (unlimited) then set it to INT_MAX
-	if maxFailures < 0 {
-		maxFailures = int(^uint(0) >> 1) // INT_MAX
+	globRateLimit := s.GlobRateLimit
+	if (globRateLimit <= 0) {
+		globRateLimit = int(^uint(0) >> 1) // INT_MAX
 	}
-
-	// create timeout duration (convert timeout to time.Duration)
-	timeoutDuration := time.Duration(timeout) * time.Second
-
-	// init scheduler
-	sched := QueryScheduler{
-		ConcurrencyLimiter:     make(chan struct{}, maxThreads),
-		Results:                make(chan WorkerResult, maxThreads),
+	srvMaxFailures := s.PerSrvMaxFailures
+	if srvMaxFailures < 0 {
+		srvMaxFailures = int(^uint(0) >> 1) // INT_MAX
 	}
+	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 
     // init server pool
-	poolSize := min(len(serverIPs), max(1, min(globRateLimit, maxThreads*2)))
-	maxPoolSize := max(poolSize * 2, 1000)
-	pool := NewServerPool(serverIPs, template, poolSize, maxPoolSize, reqInterval, maxAttempts)
-	status.WithLock(func () {
-		status.PoolSize = poolSize
-		status.NumServersInPool = len(pool.pool)
-	})
-
-
-	// init global ratelimiter
-	globRateLimiter := NewTokenBucket(uint64(globRateLimit), time.Second)
-	globRateLimiter.StartRefiller()
-
+	maxPoolSize := min(maxThreads * 6, globRateLimit * 3)
+	pool := NewServerPool(s.ServerIPs, s.Template, maxPoolSize, maxAttempts)
+	// init scheduler
+	sched := &QueryScheduler{
+		JobLimiter:  make(chan struct{}, maxThreads),
+		Results:     make(chan WorkerResult, maxThreads),
+		RateLimiter: NewRateLimiter(globRateLimit, time.Second),
+	}
 	// Run the scheduling loop to fill out servers
 	scheduleChecks(
-		pool, template, sched,
-		globRateLimiter, reqInterval,
-		timeoutDuration, maxFailures,
-		status,
+		pool, s.Template, sched, status,
+		qryTimeout, srvReqInterval, srvMaxFailures,
 	)
-
 	// stop gobal ratelimiter
-	globRateLimiter.StopRefiller()
+	sched.RateLimiter.StopRefiller()
 }
 
 // scheduleChecks is the core scheduler that dispatches DNS queries,
 // observes concurrency limits, rate limits, and failure thresholds.
 func scheduleChecks(
 	pool			*ServerPool,
-	template		dns.Template, // template checks
-	sched			QueryScheduler, // query scheduler
-	globRateLimiter	*TokenBucket, // global rate limiter
-	reqInterval		time.Duration, // min interval between 2 reqs per server
-	timeout			time.Duration, // DNS query timeout
-	maxFailures		int, // max allowed non-passing checks per server
-	status			*display.Status,
+	template		dns.Template,
+	sched			*QueryScheduler,
+	status			*report.StatusReporter,
+	qryTimeout		time.Duration,
+	srvReqInterval	time.Duration,
+	srvMaxFailures	int,
 ) {
 	for {
 		// 1) async collection of worker results -----------------------------
@@ -133,25 +106,16 @@ func scheduleChecks(
 		for {
 			select {
 			case res := <- sched.Results:
-				srv, ok := pool.pool[res.SlotID]
+				srv, ok := pool.pool[res.SrvID]
 				if !ok {
 				    continue // already unloaded -> drop silently
 				}
-				applyResults(
-					srv, &res, maxFailures, status,
-				)
+				applyResults(srv, &res, srvMaxFailures, status)
 				if srv.Finished() {
 					status.ReportFinishedServer(srv) // report server
-					pool.Unload(res.SlotID) // drop server from pool
-					// if
-					// len(pool.pool) >= pool.defaultPoolSize ||
-					// pool.LoadN(1) == 0 {
-					if
-					len(pool.pool) >= pool.maxPoolSize ||
-					pool.LoadN(1) == 0 {
-						status.WithLock(func () {
-							status.NumServersInPool = len(pool.pool)
-						})
+					pool.Unload(res.SrvID) // drop server from pool
+					if pool.IsFull() || pool.LoadN(1) == 0 {
+						status.UpdatePoolSize(pool.Len())
 					}
 				}
 			default:
@@ -161,51 +125,47 @@ func scheduleChecks(
 		// 2) scheduling new queries -----------------------------------------
 		now := time.Now()
 		numScheduled := 0
-		for slotID, srv := range pool.pool {
+		for srvID, srv := range pool.pool {
 			if                             // SKIP SERVER IF:
 			len(srv.PendingChecks) == 0 || //  - nothing to do at the moment
 			srv.NextQueryAt.After(now) ||  //  - per-serv ratelimit not honored
-			!globRateLimiter.ConsumeOne() {//  - global ratelimit not honored
+			!sched.RateLimiter.ConsumeOne() {//  - global ratelimit not honored
 				continue
 			}
 			select {
-			case sched.ConcurrencyLimiter <- struct{}{}:
+			case sched.JobLimiter <- struct{}{}:
 				// We can schedule a new test for this server
-				CheckID := srv.PendingChecks[0]
+				checkID := srv.PendingChecks[0]
 				srv.PendingChecks = srv.PendingChecks[1:]
 				sched.waitGroup.Add(1)
 				go runDNSWorker(
-					srv.IPAddress, &template[CheckID],
-					slotID, CheckID, timeout, &sched, srv.Ctx,
+					srv, &template[checkID],
+					srvID, checkID, qryTimeout, sched,
 				)
-				srv.NextQueryAt = now.Add(reqInterval)
+				srv.NextQueryAt = now.Add(srvReqInterval)
 				numScheduled++
 			default:
 				// No free slot: give back consumed ratelimit token:
-				globRateLimiter.GiveBackOne()
+				sched.RateLimiter.GiveBackOne()
 			}
 		}
 		// notify num of requests just scheduled (for rps count)
 		if numScheduled > 0 {
 			status.LogRequests(now, numScheduled)
 		}
-
 		// 3) termination condition ------------------------------------------
 		if pool.IsDrained() {
 			break // every server processed and pool emptied
 		}
 		// 4) refill pool if we have RPS budget and nothing scheduled --------
 		if numScheduled == 0 {
-			availableReqs := globRateLimiter.Remaining()
+			availableReqs := sched.RateLimiter.Remaining()
 			if availableReqs > 0 && pool.NumPending() > 0 && !pool.IsFull() {
 				inserted := pool.LoadN(availableReqs)
+				status.UpdatePoolSize(pool.Len())
 				status.Debug(
 					"expand pool by %d. newsz=%d",
-					inserted, len(pool.pool))
-				status.WithLock(func () {
-					status.PoolSize = max(status.PoolSize, len(pool.pool))
-					status.NumServersInPool = len(pool.pool)
-				})
+					inserted, pool.Len())
 			} else {
 				time.Sleep(13 * time.Millisecond) // avoid busy-wait
 			}
@@ -218,12 +178,11 @@ func scheduleChecks(
 // applyResults updates a ServerContext after one DNS query
 // and reflects the change into the shared Status struct.
 // This runs in the scheduler goroutine (single-threaded),
-// Status.WithLock() is only for the progress-bar goroutine.
 func applyResults(
 	srv				*dns.ServerContext, // server
 	res				*WorkerResult, // worker result
-	maxFailures		int, // max allowed non-passing checks per server
-	status			*display.Status,
+	srvMaxFailures	int, // max allowed non-passing checks per server
+	status			*report.StatusReporter,
 ) {
 	chk := &srv.Checks[res.CheckID]
 	chk.AttemptsLeft--
@@ -232,37 +191,27 @@ func applyResults(
 	if res.Passed {
 		chk.Passed = true
 		srv.CompletedCount++
-		status.WithLock(func () {
-			status.DoneChecks++
-		})
+		status.AddDoneChecks(+1, +0) // +1 done, +0 total
 		return
 	}
 	/* ---------- failure, retry remaining ------------------------------- */
 	if chk.AttemptsLeft > 0 {
 		// re-queue the check at the front
 		srv.PendingChecks = append([]int{res.CheckID}, srv.PendingChecks...)
-		status.WithLock(func() {
-			status.DoneChecks++
-			status.TotalChecks++
-		})
+		status.AddDoneChecks(+1, +1) // +1 done, +1 total
 		return
 	}
 	/* ---------- failure, no retry left --------------------------------- */
 	srv.CompletedCount++
 	srv.FailedCount++
 	// reached drop threshold?
-	if srv.FailedCount >= maxFailures {
+	if srv.FailedCount >= srvMaxFailures {
 		// how many planned checks are immediately cancelled
-		cancelled := len(srv.Checks) - srv.CompletedCount
-		status.WithLock(func () {
-			status.DoneChecks++
-			status.TotalChecks -= cancelled
-		})
+		cancelledChecks := len(srv.Checks) - srv.CompletedCount
+		status.AddDoneChecks(+1, -cancelledChecks)
 		srv.Disabled = true
 		srv.CancelCtx()
 	} else {
-		status.WithLock(func () {
-			status.DoneChecks++
-		})
+		status.AddDoneChecks(+1, +0) // +1 done, +0 total
 	}
 }
