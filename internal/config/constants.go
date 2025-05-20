@@ -1,6 +1,6 @@
 package config
 
-const VERSION = "v1.1.0"
+const VERSION = "v1.2.0"
 
 const HEADER = `
   ▗▄▄▄ ▗▖  ▗▖ ▗▄▄▖ ▗▄▖ ▗▖  ▗▖▗▄▄▄▖▗▄▄▄▖▗▖  ▗▖
@@ -33,7 +33,7 @@ dn05jq2u.fr                 NXDOMAIN
 # Single A record expected:
 bet365.com                  A=5.226.17*
 lists.isc.org               A=149.20.*
-#www-78-46-204-247.sslip.io  A=78.46.204.247 # unreliable, simetimes 9.9.9.9 fails on it
+#www-78-46-204-247.sslip.io  A=78.46.204.247 # unreliable, sometimes 9.9.9.9 fails on it
 app-c0a801fb.nip.io A=192.168.1.251
 retro.localtest.me          A=127.0.0.1
 
