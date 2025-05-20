@@ -15,7 +15,7 @@ jobs:
         # Operating systems to test on
         os: [ ubuntu-24.04, ubuntu-22.04, macos-15, macos-13 ]
         # Go versions to validate against
-        go: [ '1.22', '1.21' ]
+        go: [ '1.21', '1.24' ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
 

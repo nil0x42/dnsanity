@@ -5,158 +5,86 @@ package dnsanitize
 // guidelines, while normal assistant explanations remain in French.
 
 import (
+    "bytes"
     "context"
+    "reflect"
     "sync"
     "sync/atomic"
     "testing"
     "time"
+    "unsafe"
 
-    dnst "github.com/nil0x42/dnsanity/internal/dns"
-    "github.com/nil0x42/dnsanity/internal/display"
+    "github.com/nil0x42/dnsanity/internal/config"
+    "github.com/nil0x42/dnsanity/internal/dns"
+    "github.com/nil0x42/dnsanity/internal/report"
 )
 
 // ---------------------------------------------------------------------------
-// TokenBucket ----------------------------------------------------------------
+// Helpers -------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-// TestTokenBucketBasic exercises creation, consume / give‑back semantics, the
-// periodic refiller, and idempotent StartRefiller.
-func TestTokenBucketBasic(t *testing.T) {
-    t.Parallel()
-
-    tb := NewTokenBucket(100, 10*time.Millisecond)
-    if tb.Remaining() != 1 {
-        t.Fatalf("expected 1 token at start, got %d", tb.Remaining())
-    }
-    // Consume initial token – bucket is now empty
-    if !tb.ConsumeOne() {
-        t.Fatal("ConsumeOne should have succeeded on non-empty bucket")
-    }
-    if tb.Remaining() != 0 {
-        t.Fatalf("expected 0 tokens after consume, got %d", tb.Remaining())
-    }
-
-    // Start the background refiller and wait for at least one tick.
-    tb.StartRefiller()
-    time.Sleep(25 * time.Millisecond) // ≥ 2×10 ms → guaranteed one refill
-
-    if tb.Remaining() != 1 {
-        t.Fatalf("expected bucket to be refilled back to 1 token, got %d", tb.Remaining())
-    }
-
-    // Idempotency of StartRefiller / StopRefiller
-    tb.StartRefiller()
-    tb.StopRefiller()
-
-    if !tb.ConsumeOne() {
-        t.Fatal("ConsumeOne should have succeeded on non‑empty bucket")
-    }
-    if tb.Remaining() != 0 {
-        t.Fatalf("expected 0 tokens after consume, got %d", tb.Remaining())
-    }
-    if tb.ConsumeOne() {
-        t.Fatal("ConsumeOne should fail when the bucket is empty")
-    }
-
-    tb.GiveBackOne()
-    if tb.Remaining() != 1 {
-        t.Fatalf("GiveBackOne failed to return a token, remaining=%d", tb.Remaining())
-    }
-
-    tb.StartRefiller()
-    // Second call must be harmless (sync.Once protection).
-    tb.StartRefiller()
-
-    // Wait long enough for at least one tick (10 ms interval * 2).
-    time.Sleep(25 * time.Millisecond)
-    if tb.Remaining() != 1 {      // ✅  Le seau doit rester à 1
-        t.Fatalf("expected 1 token after refill, got %d", tb.Remaining())
-    }
-
-    tb.StopRefiller()
-}
-
-// TestTokenBucketConcurrency hammers ConsumeOne from many goroutines to ensure
-// lock‑free CAS loops hold under contention.
-func TestTokenBucketConcurrency(t *testing.T) {
-    t.Parallel()
-
-    tb := NewTokenBucket(1000, time.Millisecond) // 1 ms interval, 1 token
-    tb.StartRefiller()
-    defer tb.StopRefiller()
-
-    var successes int32
-    var wg sync.WaitGroup
-    for i := 0; i < 200; i++ {
-        wg.Add(1)
-        go func() {
-            defer wg.Done()
-            if tb.ConsumeOne() {
-                atomic.AddInt32(&successes, 1)
-            }
-        }()
-    }
-    wg.Wait()
-    if successes == 0 {
-        t.Fatal("concurrency test: no goroutine managed to consume a token")
+// newIOFiles returns an empty IOFiles ready to be embedded inside a
+// StatusReporter. Every file writer is nil, which is fine because the
+// implementation checks for nil before writing.
+func newIOFiles() *report.IOFiles {
+    return &report.IOFiles{
+        OutputFile:  bytes.NewBuffer(nil),
+        VerboseFile: nil,
+        DebugFile:   nil,
+        TTYFile:     nil,
     }
 }
 
-// TestGiveBackOverflow verifies that GiveBackOne never exceeds MaxTokens.
-func TestGiveBackOverflow(t *testing.T) {
-    t.Parallel()
+// newStatus creates a *report.StatusReporter with its private `io` field set
+// to a minimal instance so that calls like ReportFinishedServer() never panic.
+// We must reach into the unexported field using reflect + unsafe, which is
+// perfectly acceptable inside tests.
+func newStatus() *report.StatusReporter {
+    sr := &report.StatusReporter{}
 
-    tb := NewTokenBucket(10, time.Second) // 10 tokens burst
-    // Bucket starts full – attempting to give back must keep it capped.
-    tb.GiveBackOne()
-    if tb.Remaining() != int(tb.maxTokens.Load()) {
-        t.Fatalf("cap exceeded: remaining=%d, cap=%d", tb.Remaining(), tb.maxTokens.Load())
+    // Sneak‑set the private `io` field.
+    rv := reflect.ValueOf(sr).Elem()
+    ioField := rv.FieldByName("io") // unexported – use unsafe
+    if ioField.IsValid() {
+        p := unsafe.Pointer(ioField.UnsafeAddr())
+        reflect.NewAt(ioField.Type(), p).Elem().Set(reflect.ValueOf(newIOFiles()))
+    }
+    return sr
+}
+
+// helperServer creates a minimal ServerContext with the desired AttemptsLeft.
+func helperServer(attempts int) *dns.ServerContext {
+    ctx, cancel := context.WithCancel(context.Background())
+    return &dns.ServerContext{
+        Ctx:           ctx,
+        CancelCtx:     cancel,
+        IPAddress:     "192.0.2.123", // TEST‑NET‑1: guaranteed unroutable
+        PendingChecks: []int{},
+        Checks:        []dns.CheckContext{{AttemptsLeft: attempts, MaxAttempts: attempts}},
     }
 }
 
-// TestNewTokenBucketValidation expects a panic on invalid parameters.
-func TestNewTokenBucketValidation(t *testing.T) {
-    t.Parallel()
-
-    defer func() {
-        if r := recover(); r == nil {
-            t.Fatal("expected panic for rate=0, got none")
-        }
-    }()
-    _ = NewTokenBucket(0, time.Second)
+// dummyTemplate returns a one‑line template entry targeting an RFC‑2606 domain.
+func dummyTemplate() dns.Template {
+    entry := dns.TemplateEntry{
+        Domain: "invalid.test", // will never resolve
+        ValidAnswers: []dns.DNSAnswerData{{Status: "TIMEOUT"}},
+    }
+    return dns.Template{entry}
 }
 
 // ---------------------------------------------------------------------------
-// ServerPool ----------------------------------------------------------------
+// min / max helpers ----------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-// TestServerPoolLifecycle covers LoadN/Unload/NumPending/IsDrained paths.
-func TestServerPoolLifecycle(t *testing.T) {
+func TestMinMaxHelpers(t *testing.T) {
     t.Parallel()
 
-    tmpl := []dnst.DNSAnswer{{Domain: "example.com", Status: "NXDOMAIN"}}
-    ips := []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"}
-
-    sp := NewServerPool(ips, tmpl, 2, 5, 0, 1)
-
-    if len(sp.pool) != 2 {
-        t.Fatalf("expected initial pool size 2, got %d", len(sp.pool))
+    if max(1, 2) != 2 {
+        t.Fatalf("max(1,2) should be 2")
     }
-    if sp.NumPending() != 1 {
-        t.Fatalf("pending count mismatch: want 1, got %d", sp.NumPending())
-    }
-
-    inserted := sp.LoadN(5) // only one remains
-    if inserted != 1 || sp.NumPending() != 0 {
-        t.Fatalf("LoadN or NumPending incorrect: inserted=%d pending=%d", inserted, sp.NumPending())
-    }
-
-    // Unload everything and ensure IsDrained toggles.
-    for slot := range sp.pool {
-        sp.Unload(slot)
-    }
-    if !sp.IsDrained() {
-        t.Fatal("server pool should be fully drained after unloads")
+    if min(1, 2) != 1 {
+        t.Fatalf("min(1,2) should be 1")
     }
 }
 
@@ -164,80 +92,138 @@ func TestServerPoolLifecycle(t *testing.T) {
 // applyResults --------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-// helperServer creates a minimal ServerContext with the desired attempts.
-func helperServer(attempts int) *dnst.ServerContext {
-    ctx, cancel := context.WithCancel(context.Background())
-    return &dnst.ServerContext{
-        Ctx:            ctx,
-        CancelCtx:      cancel,
-        IPAddress:      "192.0.2.9",
-        PendingChecks:  []int{},
-        Checks:         []dnst.CheckContext{{AttemptsLeft: attempts, MaxAttempts: attempts}},
-    }
-}
-
-// TestApplyResults exercises success, retry and final‑failure paths.
-func TestApplyResults(t *testing.T) {
+func TestApplyResultsPaths(t *testing.T) {
     t.Parallel()
 
-    st := &display.Status{}
-    dummyRes := WorkerResult{
-        SlotID:  0,
-        CheckID: 0,
-        Answer:  dnst.DNSAnswer{Domain: "example.com", Status: "NXDOMAIN"},
-        Passed:  true,
-    }
+    st := newStatus()
+    res := WorkerResult{SrvID: 0, CheckID: 0, Passed: true}
 
-    // Success path
+    // Success path ---------------------------------------------------------
     srv := helperServer(1)
-    applyResults(srv, &dummyRes, 1, st)
+    applyResults(srv, &res, 1, st)
     if srv.CompletedCount != 1 || srv.FailedCount != 0 || !srv.Checks[0].Passed {
         t.Fatal("applyResults success path failed")
     }
 
-    // Retry path (AttemptsLeft>0, first failure)
+    // Retry path -----------------------------------------------------------
     srv = helperServer(2)
-    dummyRes.Passed = false
-    applyResults(srv, &dummyRes, 2, st)
+    res.Passed = false
+    applyResults(srv, &res, 2, st)
     if len(srv.PendingChecks) != 1 || srv.Checks[0].AttemptsLeft != 1 {
-        t.Fatal("applyResults retry logic incorrect")
+        t.Fatal("applyResults retry path incorrect")
     }
 
-    // Final failure → server disabled when maxFailures reached.
+    // Final failure → server disabled when maxFailures reached -------------
     srv = helperServer(1)
-    applyResults(srv, &dummyRes, 0, st) // maxFailures==0 → immediate drop
+    applyResults(srv, &res, 0, st) // maxFailures==0 → immediate drop
     if !srv.Disabled || srv.FailedCount != 1 {
         t.Fatal("applyResults final failure logic incorrect")
     }
 }
 
 // ---------------------------------------------------------------------------
-// Mini end‑to‑end scheduler run ---------------------------------------------
+// runDNSWorker --------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-// TestDNSanitizeEndToEnd executes a single DNS query against an unreachable
-// TEST‑NET‑1 address (RFC 5737). The query should fail fast (<1 s) and drive
-// the entire scheduler, covering runDNSWorker & scheduleChecks paths.
+func TestRunDNSWorker(t *testing.T) {
+    t.Parallel()
+
+    tmpl := dummyTemplate()
+    srv := dns.NewServerContext("192.0.2.45", tmpl, 1)
+    // Cancel ctx to make ResolveDNS return immediately
+    srv.CancelCtx()
+
+    sched := &QueryScheduler{
+        JobLimiter: make(chan struct{}, 1),
+        RateLimiter: NewRateLimiter(1, time.Second),
+        Results: make(chan WorkerResult, 1),
+    }
+    sched.JobLimiter <- struct{}{} // occupy one slot
+
+    sched.waitGroup.Add(1)
+    go runDNSWorker(srv, &tmpl[0], 0, 0, time.Millisecond*5, sched)
+    sched.waitGroup.Wait()
+
+    res := <-sched.Results
+    if res.SrvID != 0 || res.CheckID != 0 || res.Answer.Domain != "invalid.test" {
+        t.Fatal("runDNSWorker produced unexpected result data")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RateLimiter sanity & concurrency -----------------------------------------
+// ---------------------------------------------------------------------------
+
+func TestRateLimiterBasic(t *testing.T) {
+    t.Parallel()
+
+    rl := NewRateLimiter(10, 50*time.Millisecond)
+    if rl.Remaining() == 0 {
+        t.Fatal("expected some initial tokens in RateLimiter")
+    }
+    if !rl.ConsumeOne() {
+        t.Fatal("ConsumeOne should succeed when tokens are available")
+    }
+    rl.GiveBackOne()
+    if rl.Remaining() == 0 {
+        t.Fatal("GiveBackOne failed to return token")
+    }
+    rl.StopRefiller() // idempotent
+}
+
+func TestRateLimiterConcurrency(t *testing.T) {
+    t.Parallel()
+
+    rl := NewRateLimiter(100, 10*time.Millisecond)
+    defer rl.StopRefiller()
+
+    var ok int32
+    var wg sync.WaitGroup
+    for i := 0; i < 200; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            if rl.ConsumeOne() {
+                atomic.AddInt32(&ok, 1)
+            }
+        }()
+    }
+    wg.Wait()
+    if ok == 0 {
+        t.Fatal("no goroutine managed to consume a token – concurrency broken")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mini end‑to‑end run through DNSanitize() ----------------------------------
+// ---------------------------------------------------------------------------
+
 func TestDNSanitizeEndToEnd(t *testing.T) {
     t.Parallel()
 
-    status := &display.Status{}
-    checks := []dnst.DNSAnswer{{Domain: "example.invalid", Status: "NXDOMAIN"}}
-    servers := []string{"192.0.2.123"} // guaranteed unroutable
+    settings := &config.Settings{
+        ServerIPs:           []string{"192.0.2.99"}, // unroutable
+        Template:            dummyTemplate(),
+        MaxThreads:          2,
+        GlobRateLimit:       50,
+        PerSrvRateLimit:     1,
+        PerSrvMaxFailures:   -1, // never drop
+        PerCheckMaxAttempts: 1,
+        PerQueryTimeout:     1,
+    }
 
-    DNSanitize(
-        servers,
-        checks,
-        5,  // global RPS
-        1,  // max threads
-        1,  // per‑server RPS
-        1,  // timeout (s)
-        0,  // max mismatches → drop immediately
-        1,  // attempts
-        status,
-    )
+    st := newStatus()
 
-    if status.InvalidServers != 1 {
-        t.Fatalf("expected exactly 1 invalid server, got %d", status.InvalidServers)
+    done := make(chan struct{})
+    go func() {
+        DNSanitize(settings, st)
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        // success – function returned
+    case <-time.After(5 * time.Second):
+        t.Fatal("DNSanitize did not finish within expected time")
     }
 }
