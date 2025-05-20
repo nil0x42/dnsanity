@@ -1,4 +1,3 @@
-// Fichier: tests/integration_test.go
 package tests
 
 import (
@@ -36,7 +35,14 @@ func TestIntegrationBasic(t *testing.T) {
 
     // 3) Run the newly built binary
     // We assume that 'main.go' uses the flags: -list, -o, etc.
-    cmdRun := exec.Command("./dnsanity_bin", "-list", testServersPath, "-o", "/dev/stdout")
+    cmdRun := exec.Command(
+		"./dnsanity_bin",
+		"-list", testServersPath,
+		"-o", "/dev/stdout",
+		"-trusted-timeout", "4",
+		"-trusted-ratelimit", "3",
+		"-trusted-max-attempts", "3",
+	)
     cmdRun.Env = os.Environ()
     runOut, runErr := cmdRun.CombinedOutput()
     if runErr != nil {
