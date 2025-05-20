@@ -1,5 +1,7 @@
 name: Tests
-
+permissions:
+  actions: write # needed by upload-artifact
+  contents: read # to checkout
 on:
   push:
     branches: [ master ]
