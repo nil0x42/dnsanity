@@ -88,17 +88,17 @@ dnsanity -list "untrustedDNS.txt" -o "out.txt"  # basic usage
 ### :card_index: Custom template
 
 ```bash
-# <FQDN>             <EXPECTED-RESULT>                   <COMMENT>
-cr.yp.to             A=131.193.32.108 A=131.193.32.109   # two specific A records
-wiki.debian.org      A=* CNAME=wilder.debian.org.        # specific CNAME with any A record
-dn05jq2u.fr          NXDOMAIN                            # invalid TLD: NXDOMAIN
-invalid.com          SERVFAIL||NOERROR||TIMEOUT||FORMERR # allow an of these answers
-lists.isc.org        A=149.20.*                          # A record matching pattern
-app-c0a801fb.nip.io  A=192.168.1.251                     # specific single A record
-retro.localtest.me   A=127.0.0.1                         # specific single A record
+# <FQDN>             <EXPECTED-RESULT>                    <COMMENT>
+cr.yp.to             A=131.193.32.108 A=131.193.32.109    # two specific A records
+wiki.debian.org      A=* CNAME=wilder.debian.org.         # specific CNAME with any A record
+dn05jq2u.fr          NXDOMAIN                             # invalid TLD: NXDOMAIN
+invalid.com          SERVFAIL||NOERROR||TIMEOUT||FORMERR  # allow any of these answers
+lists.isc.org        A=149.20.*                           # A record matching pattern
+app-c0a801fb.nip.io  A=192.168.1.251                      # specific single A record
+retro.localtest.me   A=127.0.0.1                          # specific single A record
 ```
-A template test *(line)* defines what a domain must return when resolved by a DNS server.
-Create your template, and use it with `dnsanity -template /path/to/template.txt`  
+DNSanity ships with a default template — each line states the expected DNS response for a domain.  
+Need different rules? Supply your own file with `-template` option.  
 
 
 <br>
