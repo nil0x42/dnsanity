@@ -59,7 +59,7 @@ func DNSanitize(
 	maxThreads := min(s.MaxThreads, len(s.ServerIPs) * len(s.Template))
 	srvReqInterval := time.Duration(0)
 	if s.PerSrvRateLimit > 0 {
-		srvReqInterval = time.Second / time.Duration(s.PerSrvRateLimit)
+		srvReqInterval = time.Duration(float64(time.Second) / s.PerSrvRateLimit)
 	}
 	globRateLimit := s.GlobRateLimit
 	if (globRateLimit <= 0) {

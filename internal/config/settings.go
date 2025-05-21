@@ -11,7 +11,7 @@ type Settings struct {
 	MaxThreads			int
 	GlobRateLimit		int
 	// per server
-	PerSrvRateLimit		int
+	PerSrvRateLimit		float64
 	PerSrvMaxFailures	int
 	// per check
 	PerCheckMaxAttempts	int

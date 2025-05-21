@@ -175,7 +175,7 @@ func TestParseOptions(t *testing.T) {
                 "-template", "tpl.txt",
                 "-threads", "16",
                 "-timeout", "7",
-                "-ratelimit", "9",
+                "-ratelimit", "0.5",
                 "-max-attempts", "3",
                 "-max-mismatches", "2",
             },
@@ -195,8 +195,8 @@ func TestParseOptions(t *testing.T) {
                 if o.Timeout != 7 {
                     t.Fatalf("Timeout = %d, want 7", o.Timeout)
                 }
-                if o.RateLimit != 9 {
-                    t.Fatalf("RateLimit = %d, want 9", o.RateLimit)
+                if o.RateLimit != 0.5 {
+                    t.Fatalf("RateLimit = %f, want 0.5", o.RateLimit)
                 }
                 if o.Attempts != 3 {
                     t.Fatalf("Attempts = %d, want 3", o.Attempts)

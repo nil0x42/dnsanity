@@ -91,13 +91,13 @@ func NewStatusReporter(
 		"\n" +
 		"\033[1;97m* %-45s\033[2;37m⏳%%s\n" +
 		"%%c Run: %d servers * %d tests (max %d req/s, %d threads)\n" +
-		"%%c Each server: max %d req/s, %s (%%d loaded)\n" +
+		"%%c Each server: %s req/s, %s (%%d loaded)\n" +
 		"%%c Each test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
 		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
 		"%%c │%%s\033[2;37m│\033[0m",
 		title,
 		len(set.ServerIPs), len(set.Template), set.GlobRateLimit, set.MaxThreads,
-		set.PerSrvRateLimit, dropMsg(set.PerSrvMaxFailures),
+		rateLimitRepr(set.PerSrvRateLimit), dropMsg(set.PerSrvMaxFailures),
 		set.PerQueryTimeout, set.PerCheckMaxAttempts,
 	)
 	s := &StatusReporter{
@@ -222,6 +222,15 @@ func (s *StatusReporter) loop() {
 
 func (s *StatusReporter) hasPBar() bool {
 	return s.io.TTYFile != nil
+}
+
+//floatRepr: 45.00 -> "45", 45.50 -> "45.5"
+func rateLimitRepr(num float64) string {
+	if (num <= 0 || num > float64(time.Second)) {
+		return "unlimited"
+	}
+	s := fmt.Sprintf("max %.10f", num)
+	return strings.TrimRight(strings.TrimRight(s, "0"), ".")
 }
 
 // percent := ScaleValue(cur, total, 100)     // to get percentage
