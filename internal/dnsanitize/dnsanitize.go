@@ -18,7 +18,7 @@ import (
 type WorkerResult struct {
     SrvID		int					// srv id in pool
     CheckID		int					// check index
-    Answer		dns.DNSAnswer		// received answer
+    Answer		*dns.DNSAnswer		// received answer
     Passed		bool				// equals? result
 }
 
@@ -42,7 +42,7 @@ func runDNSWorker(
 	sched.Results <- WorkerResult{
 		SrvID:			srvID,
 		CheckID:		checkID,
-		Answer:			*answer,
+		Answer:			answer,
 		Passed:			check.Matches(answer),
 	}
 	<- sched.JobLimiter
@@ -72,8 +72,8 @@ func DNSanitize(
 	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 
     // init server pool
-	maxPoolSize := min(maxThreads * 6, globRateLimit * 3)
-	pool := NewServerPool(s.ServerIPs, s.Template, maxPoolSize, maxAttempts)
+	idealPoolSz := min(maxThreads * 2, globRateLimit, 10000)
+	pool := NewServerPool(s.ServerIPs, s.Template, idealPoolSz, maxAttempts)
 	// init scheduler
 	sched := &QueryScheduler{
 		JobLimiter:  make(chan struct{}, maxThreads),
@@ -114,9 +114,10 @@ func scheduleChecks(
 				if srv.Finished() {
 					status.ReportFinishedServer(srv) // report server
 					pool.Unload(res.SrvID) // drop server from pool
-					if pool.IsFull() || pool.LoadN(1) == 0 {
+					if pool.IsOverLoaded() || pool.LoadN(1) == 0 {
 						status.UpdatePoolSize(pool.Len())
 					}
+					// status.UpdatePoolSize(pool.Len())
 				}
 			default:
 				break collectLoop

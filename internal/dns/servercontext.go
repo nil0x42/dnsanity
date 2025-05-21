@@ -7,7 +7,7 @@ import (
 )
 
 type CheckContext struct {
-	Answer              DNSAnswer      // last received answer
+	Answer              *DNSAnswer      // last received answer
 	Passed              bool           // last attempt result
 	AttemptsLeft        int            // retries remaining
 	MaxAttempts         int            // immutable upper bound
@@ -41,10 +41,12 @@ func NewServerContext(
 	}
 	for i := range template {
 		sc.PendingChecks[i] = i
-		sc.Checks[i].Answer.Domain = template[i].Domain
-		sc.Checks[i].Answer.Status = "SKIPPED"
 		sc.Checks[i].AttemptsLeft = maxAttempts
 		sc.Checks[i].MaxAttempts = maxAttempts
+		sc.Checks[i].Answer = &DNSAnswer{
+			Domain: template[i].Domain,
+			DNSAnswerData: DNSAnswerData{Status: "SKIPPED"},
+		}
 	}
 	return sc
 }
