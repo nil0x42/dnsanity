@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 	"context"
+	"net"
 
 	"github.com/miekg/dns"
 )
@@ -22,16 +23,15 @@ func ResolveDNS(
 
 	message := &dns.Msg{}
 	message.SetEdns0(1232, false)
-	// // message.SetEdns0(4096, false)
-	// message.SetEdns0(65535, false)
 	message.SetQuestion(dns.Fqdn(domain), dns.TypeA) // A record
 
 	// init DNSAnswer
-	answer := &DNSAnswer{}
-	answer.Domain = domain
+	answer := &DNSAnswer{Domain: domain}
 
 	// DNS resolution
-	response, _, err := client.ExchangeContext(ctx, message, dnsServer+":53")
+	// net.JoinHostPort() is needed for ipv6 (bracket expansion):
+	hostAndPort := net.JoinHostPort(dnsServer, "53") 
+	response, _, err := client.ExchangeContext(ctx, message, hostAndPort)
 	if err != nil {
 		if strings.HasSuffix(err.Error(), "i/o timeout") {
 			answer.Status = "TIMEOUT"
@@ -39,7 +39,6 @@ func ResolveDNS(
 			answer.Status = "ECONNREFUSED"
 		} else if strings.HasSuffix(err.Error(), "connect: network is unreachable") {
 			answer.Status = "ENETUNREACH (no internet)"
-			// answer.Status = "NO_INTERNET"
 		} else {
 			answer.Status = "ERROR - " + err.Error()
 		}
@@ -56,7 +55,7 @@ func ResolveDNS(
 		}
 		answer.Status = "NOERROR"
 	}
-	if err == nil {
+	if err == nil { // check needed to avoid segfault if resp is not built
 		answer.Truncated = response.Truncated
 	}
 	return answer
