@@ -66,7 +66,6 @@ type StatusReporter struct {
 	TotalChecks				int
 	DoneChecks				int
 	// Pool Status:
-	PoolSize				int
 	NumServersInPool		int
 	// Time Tracking:
 	StartTime				time.Time
@@ -92,7 +91,7 @@ func NewStatusReporter(
 		"\n" +
 		"\033[1;97m* %-45s\033[2;37m⏳%%s\n" +
 		"%%c Run: %d servers * %d tests (max %d req/s, %d threads)\n" +
-		"%%c Each server: max %d req/s, %s (%%d/%%d in queue)\n" +
+		"%%c Each server: max %d req/s, %s (%%d loaded)\n" +
 		"%%c Each test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
 		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
 		"%%c │%%s\033[2;37m│\033[0m",
@@ -131,9 +130,6 @@ func (s *StatusReporter) UpdatePoolSize(newLen int) {
 	defer s.mu.Unlock()
 
 	s.NumServersInPool = newLen
-	if s.PoolSize < newLen {
-		s.PoolSize = newLen
-	}
 }
 
 func (s *StatusReporter) AddDoneChecks(addDoneChecks, addTotalChecks int) {
@@ -385,7 +381,7 @@ func (s *StatusReporter) renderPBar() string {
 		SPINNER[s.spinnerFrame][0],
 		// line 2: Each server: ...
 		SPINNER[s.spinnerFrame][1],
-		s.NumServersInPool, s.PoolSize,
+		s.NumServersInPool,
 		// line 3: Each test: ...
 		SPINNER[s.spinnerFrame][2],
 		int(scaleValue(s.DoneChecks, s.TotalChecks, 100)),

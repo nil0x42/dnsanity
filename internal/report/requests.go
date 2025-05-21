@@ -21,7 +21,6 @@ func (r *RequestsLog) LogRequests(t time.Time, n int) {
 
 // Return the number of requests in the last second
 // and drop all older batches.
-// The 'now' parameter makes the function test‑friendly.
 func (r *RequestsLog) CountLastSecRequests() int {
 	now := time.Now()
 	cutoff := now.Add(-time.Second)

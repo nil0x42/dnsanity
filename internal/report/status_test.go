@@ -279,13 +279,8 @@ func TestUpdatePoolSize(t *testing.T) {
 	t.Parallel()
 	st := newReporterNoTTY()
 	st.UpdatePoolSize(3)
-	if st.NumServersInPool != 3 || st.PoolSize != 3 {
-		t.Fatalf("UpdatePoolSize failed, got NumServersInPool=%d PoolSize=%d", st.NumServersInPool, st.PoolSize)
-	}
-	// Shrinking should not reduce PoolSize
-	st.UpdatePoolSize(1)
-	if st.PoolSize != 3 {
-		t.Fatalf("PoolSize should not shrink, got %d", st.PoolSize)
+	if st.NumServersInPool != 3 {
+		t.Fatalf("UpdatePoolSize failed, got NumServersInPool=%d", st.NumServersInPool)
 	}
 	st.Stop()
 }
