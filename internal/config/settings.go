@@ -9,6 +9,7 @@ type Settings struct {
 	ServerIPs			[]string
 	Template			dns.Template
 	MaxThreads			int
+	MaxPoolSize			int
 	GlobRateLimit		int
 	// per server
 	PerSrvRateLimit		float64

@@ -62,6 +62,7 @@ type StatusReporter struct {
 	// Requests Status:
 	DoneRequests			int
 	requestsLog				RequestsLog
+	PeakReqsInOneSec		int
     // Checks Status:
 	TotalChecks				int
 	DoneChecks				int
@@ -69,8 +70,16 @@ type StatusReporter struct {
 	MaxPoolSize				int
 	PoolSize				int
 	NumServersInPool		int
+	_avg_poolSizeCount		int64
+	_avg_poolSizeSum		int64
 	// Time Tracking:
 	StartTime				time.Time
+	// Jobs Tracking:
+	MaxJobs					int
+	BusyJobsPeak			int
+	BusyJobs				int
+	_avg_busyJobsCount		int64
+	_avg_busyJobsSum		int64
 }
 
 
@@ -92,8 +101,8 @@ func NewStatusReporter(
 	pBarTemplate := fmt.Sprintf(
 		"\n" +
 		"\033[1;97m* %-35s\033[2;37m%%9s - %%s\n" +
-		"%%c Run: %d servers * %d tests (max %d req/s, %d jobs, poolSz=%%d)\n" +
-		"%%c Per server: %s req/s, %s (%%d/%%d loaded)\n" +
+		"%%c Run: %d servers * %d tests (max %d req/s, %d jobs)\n" +
+		"%%c Per server: %s req/s, %s (%%d loaded)\n" +
 		"%%c Per test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
 		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
 		"%%c │%%s\033[2;37m│\033[0m",
@@ -105,16 +114,17 @@ func NewStatusReporter(
 	s := &StatusReporter{
 		io:				ioFiles,
 		quit:			make(chan struct{}),
-		redrawTicker:	time.NewTicker(time.Millisecond * 293),
+		redrawTicker:	time.NewTicker(time.Millisecond * 250),
 
 		pBarTemplate:	pBarTemplate,
-		pBarEraser:		"\r\033[2K" + strings.Repeat("\033[1A\033[2K", 6),
 		verboseFileHdr:	set.Template.PrettyDump(),
 
 		TotalServers:	len(set.ServerIPs),
 		TotalChecks:	len(set.ServerIPs) * len(set.Template),
 		StartTime:		time.Now(),
 	}
+	pBarNLines := strings.Count(s.renderDebugBar() + pBarTemplate, "\n")
+	s.pBarEraser = "\r\033[2K" + strings.Repeat("\033[1A\033[2K", pBarNLines)
 	if (s.hasPBar()) {
 		s.io.TTYFile.WriteString(s.renderPBar())
 		go s.loop()
@@ -134,14 +144,37 @@ func (s *StatusReporter) DeclareMaxPoolSize(sz int) {
 	s.MaxPoolSize = sz
 }
 
-func (s *StatusReporter) UpdatePoolSize(newLen int) {
+func (s *StatusReporter) DeclareMaxJobs(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.NumServersInPool = newLen
-	if (newLen > s.PoolSize) {
-		s.PoolSize = newLen
+	s.MaxJobs = n
+}
+
+func (s *StatusReporter) UpdatePoolSize(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.NumServersInPool = n
+	if (n > s.PoolSize) {
+		s.PoolSize = n
 	}
+	// --- avg bookkeeping --------------------------------------------------
+	s._avg_poolSizeSum += int64(n)
+	s._avg_poolSizeCount++
+}
+
+func (s *StatusReporter) UpdateBusyJobs(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.BusyJobs = n
+	if (n > s.BusyJobsPeak) {
+		s.BusyJobsPeak = n
+	}
+	// --- avg bookkeeping --------------------------------------------------
+	s._avg_busyJobsSum += int64(n)
+	s._avg_busyJobsCount++
 }
 
 func (s *StatusReporter) AddDoneChecks(addDoneChecks, addTotalChecks int) {
@@ -189,7 +222,7 @@ func (s *StatusReporter) ReportFinishedServer(srv *dns.ServerContext) {
 }
 
 func (s *StatusReporter) Debug(format string, args ...interface{}) {
-	if s.io.DebugFile != nil {
+	if s.hasDebug() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
@@ -234,6 +267,10 @@ func (s *StatusReporter) loop() {
 
 func (s *StatusReporter) hasPBar() bool {
 	return s.io.TTYFile != nil
+}
+
+func (s *StatusReporter) hasDebug() bool {
+	return s.io.DebugFile != nil
 }
 
 func (s *StatusReporter) isFinished() bool {
@@ -339,7 +376,11 @@ func (s *StatusReporter) renderElapsedTime() string {
 // renderLastSecReqCount purges old batches from requestsLog
 // and return total sum of requests made during last second.
 func (s *StatusReporter) renderLastSecReqCount() int {
-	return s.requestsLog.CountLastSecRequests()
+	c := s.requestsLog.CountLastSecRequests()
+	if c > s.PeakReqsInOneSec {
+		s.PeakReqsInOneSec = c
+	}
+	return c
 }
 
 // makeBar renders a 60‑rune progress bar composed of Braille blocks.
@@ -420,17 +461,16 @@ func (s *StatusReporter) renderPBar() string {
 		percent := int(scaleValue(n, s.TotalServers, 100))
 		return fmt.Sprintf("%s: %d (%d%%)", r, n, percent)
 	}
-	return fmt.Sprintf(
+	pBar := fmt.Sprintf(
 		s.pBarTemplate,
 		// line 0 (title):
 		s.renderElapsedTime(),
 		s.renderRemainingTime(),
 		// line 1: Run: N servers ...
 		SPINNER[s.spinnerFrame][0],
-		s.MaxPoolSize,
 		// line 2: Each server: ...
 		SPINNER[s.spinnerFrame][1],
-		s.NumServersInPool, s.PoolSize,
+		s.NumServersInPool,
 		// line 3: Each test: ...
 		SPINNER[s.spinnerFrame][2],
 		int(scaleValue(s.DoneChecks, s.TotalChecks, 100)),
@@ -443,5 +483,33 @@ func (s *StatusReporter) renderPBar() string {
 		// line 5: |⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿| ...
 		SPINNER[s.spinnerFrame][4],
 		s.renderBrailleBar(),
+	)
+	if (s.hasDebug()) {
+		return s.renderDebugBar() + pBar
+	}
+	return pBar
+}
+
+// only activated if `-debug` is set
+func (s *StatusReporter) renderDebugBar() string {
+	if !s.hasDebug() {
+		return ""
+	}
+	elapsedUs := time.Since(s.StartTime).Microseconds() + 1_000_000 // +1 s
+	// --- averages ---------------------------------------------------------
+	avgJobs := int(s._avg_busyJobsSum / max(1, s._avg_busyJobsCount))
+	avgPool := int(s._avg_poolSizeSum / max(1, s._avg_poolSizeCount))
+	avgReqPerSec := int64(s.DoneRequests) * 1_000_000 / max(1, elapsedUs)
+	return fmt.Sprintf(
+		"\n\033[33m" +
+		"* [jobs] cur:%-7d peak:%-7d max:%-7d avg:%-7d\n" +
+		"* [pool] cur:%-7d peak:%-7d max:%-7d avg:%-7d\n" +
+		"* [reqs] cur:%-7d peak:%-7d all:%-7d avg:%-7d",
+		// line 1: [jobs]
+		s.BusyJobs, s.BusyJobsPeak, s.MaxJobs, avgJobs,
+		// line 2: [pool]
+		s.NumServersInPool, s.PoolSize, s.MaxPoolSize, avgPool,
+		// line 2: [reqs]
+		s.renderLastSecReqCount(), s.PeakReqsInOneSec, s.DoneRequests, avgReqPerSec,
 	)
 }

@@ -16,9 +16,10 @@ type Options struct {
 	TrustedDNS       string
 	Template         string
 	Threads          int
+	MaxPoolSize      int
 	Timeout          int
 	TrustedTimeout   int
-	GlobRateLimit	 int
+	GlobRateLimit    int
 	RateLimit        float64
 	TrustedRateLimit float64
 	Attempts         int
@@ -34,7 +35,7 @@ type Options struct {
 func ShowHelp() {
 	var rst = "\033[0m"
 	var bol = "\033[1m"
-	// var red = "\033[31m"
+	var red = "\033[31m"
 	// var grn = "\033[32m"
 	var yel = "\033[33m"
 	// var blu = "\033[34m"
@@ -52,7 +53,7 @@ func ShowHelp() {
 	s += fmt.Sprintf("\n")
 
 	s += fmt.Sprintf(
-		"Usage:      %sdnsanity%s %s[flags]%s\n",
+		"Usage:      %sdnsanity%s %s[OPTION]...%s\n",
 		whi, rst, yel, rst)
 	s += fmt.Sprintf(
 		"Example:    %sdnsanity%s %s-list%s /tmp/untrusted-dns.txt %s-o%s /tmp/trusted-dns.txt\n",
@@ -63,54 +64,57 @@ func ShowHelp() {
 		"%sGENERIC OPTIONS:%s\n",
 		bol, rst)
 	s += fmt.Sprintf(
-		"   %s-o%s %sstring%s                  file to write output (defaults to STDOUT)\n",
-		yel, rst, gra, rst)
-	s += fmt.Sprintf(
-		"   %s-global-ratelimit%s %sint%s      global max requests per second (default 500)\n",
-		yel, rst, gra, rst)
-	s += fmt.Sprintf(
-		"   %s-threads%s %sint%s               max concurrency (default: %s-global-ratelimit * 2%s)\n",
+		"   %s-o%s %s[FILE]%s                  file to write output (defaults to %sSTDOUT%s)\n",
 		yel, rst, gra, rst, yel, rst)
+	s += fmt.Sprintf(
+		"   %s-global-ratelimit%s %sint%s      global max requests per second (default %s300%s)\n",
+		yel, rst, gra, rst, yel, rst)
+	s += fmt.Sprintf(
+		"   %s-threads%s %sint%s               max concurrency (default: %sauto%s) %s[experts only]%s\n",
+		yel, rst, gra, rst, yel, rst, red, rst)
+	s += fmt.Sprintf(
+		"   %s-max-poolsize%s %sint%s          limit servers loaded in memory (default: %sauto%s) %s[experts only]%s\n",
+		yel, rst, gra, rst, yel, rst, red, rst)
 	s += fmt.Sprintf("\n")
 
 	s += fmt.Sprintf(
 		"%sSERVERS SANITIZATION:%s\n",
 		bol, rst)
 	s += fmt.Sprintf(
-		"   %s-list%s %sstring%s               list of DNS servers to sanitize (file or comma separated or STDIN)\n",
-		yel, rst, gra, rst)
+		"   %s-list%s %s[FILE||str]%s          list of DNS servers to sanitize (%sfile%s or %scomma separated%s or %sSTDIN%s)\n",
+		yel, rst, gra, rst, yel, rst, yel, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-timeout%s %sint%s               timeout in seconds for DNS queries (default 4)\n",
-		yel, rst, gra, rst)
+		"   %s-timeout%s %sint%s               timeout in seconds for DNS queries (default %s4%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-ratelimit%s %sfloat%s           max requests per second per DNS server (default 2)\n",
-		yel, rst, gra, rst)
+		"   %s-ratelimit%s %sfloat%s           max requests per second per DNS server (default %s2%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-max-attempts%s %sint%s          max attempts before marking a mismatching DNS test as failed (default 2)\n",
-		yel, rst, gra, rst)
+		"   %s-max-attempts%s %sint%s          max attempts before marking a mismatching DNS test as failed (default %s2%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-max-mismatches%s %sint%s        max allowed mismatching DNS tests per server (default 0)\n",
-		yel, rst, gra, rst)
+		"   %s-max-mismatches%s %sint%s        max allowed mismatching DNS tests per server (default %s0%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf("\n")
 
 	s += fmt.Sprintf(
 		"%sTEMPLATE VALIDATION:%s\n",
 		bol, rst)
 	s += fmt.Sprintf(
-		"   %s-template%s %sstring%s           path to the DNSanity validation template (-verbose to show)\n",
+		"   %s-template%s %s[FILE]%s           use a custom validation template instead of default one\n",
 		yel, rst, gra, rst)
 	s += fmt.Sprintf(
-		"   %s-trusted-list%s %sstring%s       list of TRUSTED servers (defaults to \"8.8.8.8, 1.1.1.1, 9.9.9.9\")\n",
-		yel, rst, gra, rst)
+		"   %s-trusted-list%s %s[FILE||str]%s  list of TRUSTED servers (defaults to %s\"8.8.8.8, 1.1.1.1, 9.9.9.9\"%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-trusted-timeout%s %sint%s       timeout in seconds for TRUSTED servers (default 2)\n",
-		yel, rst, gra, rst)
+		"   %s-trusted-timeout%s %sint%s       timeout in seconds for TRUSTED servers (default %s2%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-trusted-ratelimit%s %sfloat%s   max requests per second per TRUSTED server (default 10)\n",
-		yel, rst, gra, rst)
+		"   %s-trusted-ratelimit%s %sfloat%s   max requests per second per TRUSTED server (default %s10%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-trusted-max-attempts%s %sint%s  max attempts before marking a mismatching TRUSTED test as failed (default 2)\n",
-		yel, rst, gra, rst)
+		"   %s-trusted-max-attempts%s %sint%s  max attempts before marking a mismatching TRUSTED test as failed (default %s2%s)\n",
+		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf("\n")
 
 	s += fmt.Sprintf(
@@ -119,17 +123,14 @@ func ShowHelp() {
 	s += fmt.Sprintf(
 		"   %s-h, --help%s                 show help\n",
 		yel, rst)
-	// s += fmt.Sprintf(
-	// 	"   %s-full-help%s                 show advanced help to get an overview of dnsanity's workflow\n",
-	// 	yel, rst)
 	s += fmt.Sprintf(
 		"   %s-version%s                   display version of dnsanity\n",
 		yel, rst)
 	s += fmt.Sprintf(
-		"   %s-verbose%s                   show detailed servers status\n",
+		"   %s-verbose%s                   show template and servers status details (on STDERR)\n",
 		yel, rst)
 	s += fmt.Sprintf(
-		"   %s-debug%s                     enable debugging information\n",
+		"   %s-debug%s                     show debugging information (on STDERR)\n",
 		yel, rst)
 	s += fmt.Sprintf("\n")
 	tty.SmartFprintf(os.Stdout, s)
@@ -148,8 +149,9 @@ func ParseOptions() (*Options, error) {
 	opts := &Options{}
 	// GENERIC OPTIONS
 	flag.StringVar(&opts.OutputFilePath, "o", "/dev/stdout", "file to write output")
-	flag.IntVar(&opts.GlobRateLimit, "global-ratelimit", 500, "global rate limit")
+	flag.IntVar(&opts.GlobRateLimit, "global-ratelimit", 300, "global rate limit")
 	flag.IntVar(&opts.Threads, "threads", -1, "number of threads")
+	flag.IntVar(&opts.MaxPoolSize, "max-poolsize", -1, "limit servers loaded in memory")
 	// SERVER SANITIZATION
 	flag.StringVar(&opts.UntrustedDNS, "list", "", "list of DNS servers to sanitize (file or comma separated or stdin)")
 	flag.IntVar(&opts.Timeout, "timeout", 4, "timeout in seconds for DNS queries")
@@ -186,11 +188,7 @@ func ParseOptions() (*Options, error) {
 		opts.GlobRateLimit = 9999
 	}
 	if opts.Threads < 1 {
-		if opts.GlobRateLimit < 50 {
-			opts.Threads = 100
-		} else {
-			opts.Threads = opts.GlobRateLimit * 2
-		}
+		opts.Threads = max(200, opts.GlobRateLimit * 4)
 	}
 
 	return opts, nil

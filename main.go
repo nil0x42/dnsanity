@@ -24,6 +24,7 @@ func validateTemplate(
 		ServerIPs:				conf.TrustedDNSList,
 		Template:				conf.Template,
 		MaxThreads:				conf.Opts.Threads,
+		MaxPoolSize:			conf.Opts.MaxPoolSize,
 		GlobRateLimit:			conf.Opts.GlobRateLimit,
 		// per server
 		PerSrvRateLimit:		conf.Opts.TrustedRateLimit,
@@ -74,6 +75,7 @@ func sanitizeServers(
 		ServerIPs:				conf.UntrustedDNSList,
 		Template:				conf.Template,
 		MaxThreads:				conf.Opts.Threads,
+		MaxPoolSize:			conf.Opts.MaxPoolSize,
 		GlobRateLimit:			conf.Opts.GlobRateLimit,
 		// per server
 		PerSrvRateLimit:		conf.Opts.RateLimit,
