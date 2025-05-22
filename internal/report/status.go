@@ -43,12 +43,12 @@ var SPINNER = [][]rune{
 
 
 type StatusReporter struct {
-	// plumbing:
+	// Plumbing:
 	mu						sync.Mutex
 	io						*IOFiles
 	quit					chan struct{}
 	redrawTicker			*time.Ticker
-	// display:
+	// Display:
 	pBarTemplate			string // progress bar fmt string template
 	pBarEraser				string // ANSI sequence to 'erase' current pbar
 	cacheStr				string // cached data to display @ next redraw
@@ -66,6 +66,8 @@ type StatusReporter struct {
 	TotalChecks				int
 	DoneChecks				int
 	// Pool Status:
+	MaxPoolSize				int
+	PoolSize				int
 	NumServersInPool		int
 	// Time Tracking:
 	StartTime				time.Time
@@ -89,10 +91,10 @@ func NewStatusReporter(
 	}
 	pBarTemplate := fmt.Sprintf(
 		"\n" +
-		"\033[1;97m* %-45s\033[2;37m⏳%%s\n" +
-		"%%c Run: %d servers * %d tests (max %d req/s, %d threads)\n" +
-		"%%c Each server: %s req/s, %s (%%d loaded)\n" +
-		"%%c Each test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
+		"\033[1;97m* %-35s\033[2;37m%%9s - %%s\n" +
+		"%%c Run: %d servers * %d tests (max %d req/s, %d jobs, poolSz=%%d)\n" +
+		"%%c Per server: %s req/s, %s (%%d/%%d loaded)\n" +
+		"%%c Per test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
 		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
 		"%%c │%%s\033[2;37m│\033[0m",
 		title,
@@ -125,11 +127,21 @@ func NewStatusReporter(
 /* PUBLIC API ------------------------------------------------------- */
 /* ------------------------------------------------------------------ */
 
+func (s *StatusReporter) DeclareMaxPoolSize(sz int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.MaxPoolSize = sz
+}
+
 func (s *StatusReporter) UpdatePoolSize(newLen int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.NumServersInPool = newLen
+	if (newLen > s.PoolSize) {
+		s.PoolSize = newLen
+	}
 }
 
 func (s *StatusReporter) AddDoneChecks(addDoneChecks, addTotalChecks int) {
@@ -224,6 +236,14 @@ func (s *StatusReporter) hasPBar() bool {
 	return s.io.TTYFile != nil
 }
 
+func (s *StatusReporter) isFinished() bool {
+	return s.doneServers() == s.TotalServers
+}
+
+func (s *StatusReporter) doneServers() int {
+	return s.ValidServers + s.InvalidServers
+}
+
 //floatRepr: 45.00 -> "45", 45.50 -> "45.5"
 func rateLimitRepr(num float64) string {
 	if (num <= 0 || num > float64(time.Second)) {
@@ -267,34 +287,52 @@ func (s *StatusReporter) fWrite(file io.Writer, str string){
 /* ------------------------------------------------------------------ */
 
 func (s *StatusReporter) renderRemainingTime() string {
+	if s.isFinished() {
+		return "DONE"
+	}
 	reqsRate := scaleValue(s.DoneChecks, s.TotalChecks, 1)
-	srvsRate := scaleValue(s.ValidServers + s.InvalidServers, s.TotalServers, 1)
-	rate := (reqsRate + srvsRate + srvsRate) / 3.0 // more weight for srvsRate
+	rate := reqsRate
+	if s.doneServers() > 0 { // then give more weight for srvsRate
+		srvsRate := scaleValue(s.doneServers(), s.TotalServers, 1)
+		rate = (reqsRate + srvsRate * 4) / 5
+	}
 	if rate < 0.001 {
-		return "--" // unknown before 0.1% progress
+		return "ETA: --" // unknown before 0.1% progress
 	}
 	elapsed := time.Since(s.StartTime)
 	totalExpected := time.Duration(float64(elapsed) / rate)
-	remaining := totalExpected - elapsed
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(0, totalExpected - elapsed)
 	// --- human‑friendly formatting ----------------------------------------
-    secs := int(remaining.Seconds() + 0.5) // round half‑up
-    if secs < 60 {
-        return "<1m"
-    }
-    mins   := secs / 60
-    days   := mins / (24 * 60)
-    hours  := (mins / 60) % 24
-    minute := mins % 60
+	secs := int(remaining.Seconds() + 0.5) // round half‑up
+	if secs < 60 {
+		return "ETA: <1m"
+	}
+	mins   := secs / 60
+	days   := mins / (24 * 60)
+	hours  := (mins / 60) % 24
+	minute := mins % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("ETA: %dd %dh", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("ETA: %dh %dm", hours, minute)
+	default:
+		return fmt.Sprintf("ETA: %dm", minute)
+	}
+}
+
+func (s *StatusReporter) renderElapsedTime() string {
+    sec := int(time.Since(s.StartTime).Seconds())
+    const D, H, M = 86400, 3600, 60
     switch {
-    case days > 0:
-        return fmt.Sprintf("%dd %dh", days, hours)
-    case hours > 0:
-        return fmt.Sprintf("%dh %dm", hours, minute)
+    case sec >= D:
+        return fmt.Sprintf("⏳%dd %dh", sec/D, (sec%D)/H)
+    case sec >= H:
+        return fmt.Sprintf("⏳%dh %dm", sec/H, (sec%H)/M)
+    case sec >= M:
+        return fmt.Sprintf("⏳%dm %ds", sec/M, sec%M)
     default:
-        return fmt.Sprintf("%dm", minute)
+        return fmt.Sprintf("⏳%ds", sec)
     }
 }
 
@@ -364,7 +402,7 @@ func (s *StatusReporter) renderBrailleBar() string {
 			}
 		}
 	}
-	if s.ValidServers + s.InvalidServers == s.TotalServers {
+	if s.isFinished() {
 		for i := range validRunes {
 			validRunes[i] = '⣿'
 		}
@@ -385,12 +423,14 @@ func (s *StatusReporter) renderPBar() string {
 	return fmt.Sprintf(
 		s.pBarTemplate,
 		// line 0 (title):
+		s.renderElapsedTime(),
 		s.renderRemainingTime(),
 		// line 1: Run: N servers ...
 		SPINNER[s.spinnerFrame][0],
+		s.MaxPoolSize,
 		// line 2: Each server: ...
 		SPINNER[s.spinnerFrame][1],
-		s.NumServersInPool,
+		s.NumServersInPool, s.PoolSize,
 		// line 3: Each test: ...
 		SPINNER[s.spinnerFrame][2],
 		int(scaleValue(s.DoneChecks, s.TotalChecks, 100)),
