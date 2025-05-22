@@ -24,10 +24,10 @@ type ServerPool struct {
 
 // NewServerPool
 func NewServerPool(
-	serverIPs   []string,
-	template    dns.Template,
 	idealPoolSz int,
 	maxPoolSz   int,
+	serverIPs   []string,
+	template    dns.Template,
 	maxAttempts int,
 ) *ServerPool {
 	if (idealPoolSz > maxPoolSz) {
@@ -81,6 +81,10 @@ func (sp *ServerPool) NumPending() int {
 // IsDrained is true when no server remains and queue is empty.
 func (sp *ServerPool) IsDrained() bool {
 	return sp.Len() == 0 && sp.NumPending() == 0
+}
+
+func (sp *ServerPool) MaxSize() int {
+	return sp.maxPoolSz
 }
 
 // IsFull is true when pool size == maxPoolSz

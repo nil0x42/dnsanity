@@ -3,7 +3,6 @@ package dnsanitize
 import (
 	"sync"
 	"time"
-	"math"
 
 	"github.com/nil0x42/dnsanity/internal/config"
 	"github.com/nil0x42/dnsanity/internal/report"
@@ -73,13 +72,20 @@ func DNSanitize(
 	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 
     // init server pool
-	poolGrowthFactor := 1 + math.Max(s.PerSrvRateLimit, 1 / s.PerSrvRateLimit)
-	poolSzLimit := min(10000, len(s.ServerIPs))
-	idealPoolSz := min(poolSzLimit, maxThreads * 2, globRateLimit)
-	maxPoolSz := min(poolSzLimit, int(float64(idealPoolSz) * poolGrowthFactor))
-	status.DeclareMaxPoolSize(maxPoolSz)
+	idealPoolSz := min(10000, maxThreads * 2, globRateLimit)
+	poolGrowthFactor := 1 + (1 / s.PerSrvRateLimit)
+	maxPoolSz := min(10000, int(float64(idealPoolSz) * poolGrowthFactor))
+	if (s.MaxPoolSize > 0) {
+		maxPoolSz = s.MaxPoolSize
+	}
 	pool := NewServerPool(
-		s.ServerIPs, s.Template, idealPoolSz, maxPoolSz, maxAttempts)
+		min(len(s.ServerIPs), idealPoolSz, maxPoolSz),
+		min(len(s.ServerIPs), maxPoolSz),
+		s.ServerIPs, s.Template, maxAttempts)
+
+	status.DeclareMaxPoolSize(pool.MaxSize())
+	status.DeclareMaxJobs(maxThreads)
+
 	// init scheduler
 	sched := &QueryScheduler{
 		JobLimiter:  make(chan struct{}, maxThreads),
@@ -132,6 +138,8 @@ func scheduleChecks(
 		// 2) scheduling new queries -----------------------------------------
 		now := time.Now()
 		numScheduled := 0
+		busyJobs := 0
+		// jobLimitReached := false
 		for srvID, srv := range pool.pool {
 			if                             // SKIP SERVER IF:
 			len(srv.PendingChecks) == 0 || //  - nothing to do at the moment
@@ -142,6 +150,7 @@ func scheduleChecks(
 			select {
 			case sched.JobLimiter <- struct{}{}:
 				// We can schedule a new test for this server
+				busyJobs = max(busyJobs, len(sched.JobLimiter))
 				checkID := srv.PendingChecks[0]
 				srv.PendingChecks = srv.PendingChecks[1:]
 				sched.waitGroup.Add(1)
@@ -154,11 +163,13 @@ func scheduleChecks(
 			default:
 				// No free slot: give back consumed ratelimit token:
 				sched.RateLimiter.GiveBackOne()
+				// jobLimitReached = true
 			}
 		}
 		// notify num of requests just scheduled (for rps count)
 		if numScheduled > 0 {
 			status.LogRequests(now, numScheduled)
+			status.UpdateBusyJobs(busyJobs)
 		}
 		// 3) termination condition ------------------------------------------
 		if pool.IsDrained() {
@@ -167,8 +178,10 @@ func scheduleChecks(
 		// 4) refill pool if we have RPS budget and nothing scheduled --------
 		if numScheduled == 0 {
 			availableReqs := sched.RateLimiter.Remaining()
-			if availableReqs > 0 && pool.NumPending() > 0 && !pool.IsFull() {
-				inserted := pool.LoadN(availableReqs)
+			availableJobs := cap(sched.JobLimiter) - len(sched.JobLimiter)
+			toLoad := min(availableReqs, availableJobs)
+			if toLoad > 0 && pool.NumPending() > 0 && !pool.IsFull() {
+				inserted := pool.LoadN(toLoad)
 				status.UpdatePoolSize(pool.Len())
 				status.Debug(
 					"expand pool by %d. newsz=%d",
