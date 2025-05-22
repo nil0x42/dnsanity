@@ -3,6 +3,7 @@ package dnsanitize
 import (
 	"sync"
 	"time"
+	"math"
 
 	"github.com/nil0x42/dnsanity/internal/config"
 	"github.com/nil0x42/dnsanity/internal/report"
@@ -72,8 +73,13 @@ func DNSanitize(
 	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 
     // init server pool
-	idealPoolSz := min(maxThreads * 2, globRateLimit, 10000)
-	pool := NewServerPool(s.ServerIPs, s.Template, idealPoolSz, maxAttempts)
+	poolGrowthFactor := 1 + math.Max(s.PerSrvRateLimit, 1 / s.PerSrvRateLimit)
+	poolSzLimit := min(10000, len(s.ServerIPs))
+	idealPoolSz := min(poolSzLimit, maxThreads * 2, globRateLimit)
+	maxPoolSz := min(poolSzLimit, int(float64(idealPoolSz) * poolGrowthFactor))
+	status.DeclareMaxPoolSize(maxPoolSz)
+	pool := NewServerPool(
+		s.ServerIPs, s.Template, idealPoolSz, maxPoolSz, maxAttempts)
 	// init scheduler
 	sched := &QueryScheduler{
 		JobLimiter:  make(chan struct{}, maxThreads),

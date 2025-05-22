@@ -27,9 +27,12 @@ func NewServerPool(
 	serverIPs   []string,
 	template    dns.Template,
 	idealPoolSz int,
+	maxPoolSz   int,
 	maxAttempts int,
 ) *ServerPool {
-	maxPoolSz := idealPoolSz * 3 // load up to 3 times ideal pool size
+	if (idealPoolSz > maxPoolSz) {
+		panic("idealPoolSz > maxPoolSz")
+	}
 	sp := &ServerPool{
 		template:        template,
 		queue:           serverIPs,
