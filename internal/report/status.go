@@ -63,6 +63,8 @@ type StatusReporter struct {
 	DoneRequests			int
 	requestsLog				RequestsLog
 	PeakReqsInOneSec		int
+	NScheduledIdle			int
+	NScheduledBusy			int
     // Checks Status:
 	TotalChecks				int
 	DoneChecks				int
@@ -93,16 +95,16 @@ func NewStatusReporter(
 	dropMsg := func(srvMaxFail int) string {
 		if srvMaxFail == 0 {
 			return "dropped if any test fails"
-		} else if srvMaxFail < 0 {
+		} else if srvMaxFail >= len(set.Template) {
 			return "never dropped"
 		}
 		return fmt.Sprintf("dropped if >%d tests fail", srvMaxFail)
 	}
 	pBarTemplate := fmt.Sprintf(
 		"\n" +
-		"\033[1;97m* %-35s\033[2;37m%%9s - %%s\n" +
-		"%%c Run: %d servers * %d tests (max %d req/s, %d jobs)\n" +
-		"%%c Per server: %s req/s, %s (%%d loaded)\n" +
+		"\033[1;97m* %-30s\033[2;37m%%10s - %%s\n" +
+		"%%c Run: %d servers * %d tests, max %d req/s, %d jobs (%%d busy)\n" +
+		"%%c Per server: %s req/s, %s (%%d in pool)\n" +
 		"%%c Per test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
 		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
 		"%%c │%%s\033[2;37m│\033[0m",
@@ -122,6 +124,9 @@ func NewStatusReporter(
 		TotalServers:	len(set.ServerIPs),
 		TotalChecks:	len(set.ServerIPs) * len(set.Template),
 		StartTime:		time.Now(),
+
+		MaxJobs:		set.MaxThreads,
+		MaxPoolSize:	set.MaxPoolSize,
 	}
 	pBarNLines := strings.Count(s.renderDebugBar() + pBarTemplate, "\n")
 	s.pBarEraser = "\r\033[2K" + strings.Repeat("\033[1A\033[2K", pBarNLines)
@@ -136,20 +141,6 @@ func NewStatusReporter(
 /* ------------------------------------------------------------------ */
 /* PUBLIC API ------------------------------------------------------- */
 /* ------------------------------------------------------------------ */
-
-func (s *StatusReporter) DeclareMaxPoolSize(sz int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.MaxPoolSize = sz
-}
-
-func (s *StatusReporter) DeclareMaxJobs(n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.MaxJobs = n
-}
 
 func (s *StatusReporter) UpdatePoolSize(n int) {
 	s.mu.Lock()
@@ -187,15 +178,18 @@ func (s *StatusReporter) AddDoneChecks(addDoneChecks, addTotalChecks int) {
 	}
 }
 
-func (s *StatusReporter) LogRequests(t time.Time, n int) {
+func (s *StatusReporter) LogRequests(t time.Time, nIdle, nBusy int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	n := nIdle + nBusy
 	s.DoneRequests += n
 	if s.hasPBar() {
 		// only log reqBatches if pbar is active to avoid accumulating...
 		s.requestsLog.LogRequests(t, n)
 	}
+	s.NScheduledIdle += nIdle
+	s.NScheduledBusy += nBusy
 }
 
 func (s *StatusReporter) ReportFinishedServer(srv *dns.ServerContext) {
@@ -281,11 +275,7 @@ func (s *StatusReporter) doneServers() int {
 	return s.ValidServers + s.InvalidServers
 }
 
-//floatRepr: 45.00 -> "45", 45.50 -> "45.5"
 func rateLimitRepr(num float64) string {
-	if (num <= 0 || num > float64(time.Second)) {
-		return "unlimited"
-	}
 	s := fmt.Sprintf("max %.10f", num)
 	return strings.TrimRight(strings.TrimRight(s, "0"), ".")
 }
@@ -468,6 +458,7 @@ func (s *StatusReporter) renderPBar() string {
 		s.renderRemainingTime(),
 		// line 1: Run: N servers ...
 		SPINNER[s.spinnerFrame][0],
+		s.BusyJobs,
 		// line 2: Each server: ...
 		SPINNER[s.spinnerFrame][1],
 		s.NumServersInPool,
@@ -495,21 +486,25 @@ func (s *StatusReporter) renderDebugBar() string {
 	if !s.hasDebug() {
 		return ""
 	}
-	elapsedUs := time.Since(s.StartTime).Microseconds() + 1_000_000 // +1 s
+	elapsedUs := time.Since(s.StartTime).Microseconds() + 500_000 // +500ms
 	// --- averages ---------------------------------------------------------
 	avgJobs := int(s._avg_busyJobsSum / max(1, s._avg_busyJobsCount))
 	avgPool := int(s._avg_poolSizeSum / max(1, s._avg_poolSizeCount))
 	avgReqPerSec := int64(s.DoneRequests) * 1_000_000 / max(1, elapsedUs)
 	return fmt.Sprintf(
 		"\n\033[33m" +
-		"* [jobs] cur:%-7d peak:%-7d max:%-7d avg:%-7d\n" +
-		"* [pool] cur:%-7d peak:%-7d max:%-7d avg:%-7d\n" +
-		"* [reqs] cur:%-7d peak:%-7d all:%-7d avg:%-7d",
+		"* [jobs] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n" +
+		"* [pool] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n" +
+		"* [reqs] cur:%-7d peak:%-7d avg:%-7d all:%-7d idle:%-7d busy:%-7d",
 		// line 1: [jobs]
-		s.BusyJobs, s.BusyJobsPeak, s.MaxJobs, avgJobs,
+		s.BusyJobs, s.BusyJobsPeak,
+		avgJobs, s.MaxJobs,
 		// line 2: [pool]
-		s.NumServersInPool, s.PoolSize, s.MaxPoolSize, avgPool,
+		s.NumServersInPool, s.PoolSize,
+		avgPool, s.MaxPoolSize,
 		// line 2: [reqs]
-		s.renderLastSecReqCount(), s.PeakReqsInOneSec, s.DoneRequests, avgReqPerSec,
+		s.renderLastSecReqCount(), s.PeakReqsInOneSec,
+		avgReqPerSec, s.DoneRequests,
+		s.NScheduledIdle, s.NScheduledBusy,
 	)
 }

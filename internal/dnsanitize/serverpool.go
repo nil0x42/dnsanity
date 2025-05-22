@@ -14,7 +14,6 @@ type ServerPool struct {
 
 	pool        map[int]*dns.ServerContext // srvID ➜ *ServerContext
 	nextSlot    int                        // srvID generator
-	idealPoolSz int                        // ideal pool size
 	maxPoolSz   int                        // maximum pool size
 
 	maxAttempts int                        // needed to build ServerContext
@@ -24,24 +23,18 @@ type ServerPool struct {
 
 // NewServerPool
 func NewServerPool(
-	idealPoolSz int,
 	maxPoolSz   int,
 	serverIPs   []string,
 	template    dns.Template,
 	maxAttempts int,
 ) *ServerPool {
-	if (idealPoolSz > maxPoolSz) {
-		panic("idealPoolSz > maxPoolSz")
-	}
 	sp := &ServerPool{
 		template:        template,
 		queue:           serverIPs,
-		pool:            make(map[int]*dns.ServerContext, maxPoolSz),
-		idealPoolSz:     idealPoolSz,
+		pool:            make(map[int]*dns.ServerContext),
 		maxPoolSz:       maxPoolSz,
 		maxAttempts:     maxAttempts,
 	}
-	// sp.LoadN(idealPoolSz)
 	return sp
 }
 
@@ -61,6 +54,12 @@ func (sp *ServerPool) LoadN(n int) int {
 		inserted++
 	}
 	return inserted
+}
+
+// Get returns the *ServerContext associated to the slot
+func (sp *ServerPool) Get(slot int) (*dns.ServerContext, bool) {
+	srv, ok := sp.pool[slot]
+    return srv, ok
 }
 
 // Unload removes a finished ServerContext; if not Disabled, records its IP.
@@ -92,7 +91,6 @@ func (sp *ServerPool) IsFull() bool {
 	return sp.Len() == sp.maxPoolSz
 }
 
-// IsOverLoaded is true when pool size >= idealPoolSz
-func (sp *ServerPool) IsOverLoaded() bool {
-	return sp.Len() >= sp.idealPoolSz
+func (sp *ServerPool) CanGrow() bool {
+	return !sp.IsFull() && sp.NumPending() > 0
 }

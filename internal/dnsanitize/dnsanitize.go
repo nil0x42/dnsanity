@@ -55,47 +55,27 @@ func DNSanitize(
 	s		*config.Settings,
 	status	*report.StatusReporter,
 ) {
-	maxAttempts := max(s.PerCheckMaxAttempts, 1)
-	maxThreads := min(s.MaxThreads, len(s.ServerIPs) * len(s.Template))
+	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 	srvReqInterval := time.Duration(0)
 	if s.PerSrvRateLimit > 0 {
 		srvReqInterval = time.Duration(float64(time.Second) / s.PerSrvRateLimit)
 	}
-	globRateLimit := s.GlobRateLimit
-	if (globRateLimit <= 0) {
-		globRateLimit = int(^uint(0) >> 1) // INT_MAX
-	}
-	srvMaxFailures := s.PerSrvMaxFailures
-	if srvMaxFailures < 0 {
-		srvMaxFailures = int(^uint(0) >> 1) // INT_MAX
-	}
-	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 
     // init server pool
-	idealPoolSz := min(10000, maxThreads * 2, globRateLimit)
-	poolGrowthFactor := 1 + (1 / s.PerSrvRateLimit)
-	maxPoolSz := min(10000, int(float64(idealPoolSz) * poolGrowthFactor))
-	if (s.MaxPoolSize > 0) {
-		maxPoolSz = s.MaxPoolSize
-	}
 	pool := NewServerPool(
-		min(len(s.ServerIPs), idealPoolSz, maxPoolSz),
-		min(len(s.ServerIPs), maxPoolSz),
-		s.ServerIPs, s.Template, maxAttempts)
-
-	status.DeclareMaxPoolSize(pool.MaxSize())
-	status.DeclareMaxJobs(maxThreads)
+		s.MaxPoolSize, s.ServerIPs, s.Template, s.PerCheckMaxAttempts)
 
 	// init scheduler
+	maxThreads := min(s.MaxThreads, len(s.ServerIPs) * len(s.Template))
 	sched := &QueryScheduler{
 		JobLimiter:  make(chan struct{}, maxThreads),
 		Results:     make(chan WorkerResult, maxThreads),
-		RateLimiter: NewRateLimiter(globRateLimit, time.Second),
+		RateLimiter: NewRateLimiter(s.GlobRateLimit, time.Second),
 	}
 	// Run the scheduling loop to fill out servers
 	scheduleChecks(
 		pool, s.Template, sched, status,
-		qryTimeout, srvReqInterval, srvMaxFailures,
+		qryTimeout, srvReqInterval, s.PerSrvMaxFailures,
 	)
 	// stop gobal ratelimiter
 	sched.RateLimiter.StopRefiller()
@@ -104,94 +84,116 @@ func DNSanitize(
 // scheduleChecks is the core scheduler that dispatches DNS queries,
 // observes concurrency limits, rate limits, and failure thresholds.
 func scheduleChecks(
-	pool			*ServerPool,
-	template		dns.Template,
-	sched			*QueryScheduler,
-	status			*report.StatusReporter,
-	qryTimeout		time.Duration,
-	srvReqInterval	time.Duration,
-	srvMaxFailures	int,
+	pool            *ServerPool,
+	template        dns.Template,
+	sched           *QueryScheduler,
+	status          *report.StatusReporter,
+	qryTimeout      time.Duration,
+	srvReqInterval  time.Duration,
+	srvMaxFailures  int,
 ) {
+	inFlight := make(map[int]int)
 	for {
 		// 1) async collection of worker results -----------------------------
 		collectLoop:
 		for {
 			select {
-			case res := <- sched.Results:
-				srv, ok := pool.pool[res.SrvID]
-				if !ok {
-				    continue // already unloaded -> drop silently
+			case res := <-sched.Results:
+				// request done -> decrement inFlight count
+				if n := inFlight[res.SrvID]; n > 1 {
+					inFlight[res.SrvID] = n - 1
+				} else { // <=0
+					delete(inFlight, res.SrvID)
+				}
+				srv, srvExists := pool.Get(res.SrvID)
+				if !srvExists { // server already dropped
+					continue
 				}
 				applyResults(srv, &res, srvMaxFailures, status)
 				if srv.Finished() {
 					status.ReportFinishedServer(srv) // report server
-					pool.Unload(res.SrvID) // drop server from pool
-					if pool.IsOverLoaded() || pool.LoadN(1) == 0 {
-						status.UpdatePoolSize(pool.Len())
-					}
-					// status.UpdatePoolSize(pool.Len())
+					pool.Unload(res.SrvID)           // drop server from pool
 				}
 			default:
 				break collectLoop
 			}
 		}
+
 		// 2) scheduling new queries -----------------------------------------
 		now := time.Now()
-		numScheduled := 0
-		busyJobs := 0
-		// jobLimitReached := false
-		for srvID, srv := range pool.pool {
-			if                             // SKIP SERVER IF:
-			len(srv.PendingChecks) == 0 || //  - nothing to do at the moment
-			srv.NextQueryAt.After(now) ||  //  - per-serv ratelimit not honored
-			!sched.RateLimiter.ConsumeOne() {//  - global ratelimit not honored
-				continue
+		numScheduled, numScheduledBusy, numScheduledIdle := 0, 0, 0
+		poolCanGrow := pool.CanGrow()
+		busyJobs := len(sched.JobLimiter)
+		freeJobs := cap(sched.JobLimiter) - busyJobs
+		// Two passes : first IDLE servers, then BUSY (inFlight).
+		// Second pass is allowed ONLY when the pool cannot grow anymore.
+		for pass := 0; pass < 2 && freeJobs > 0; pass++ {
+			if pass == 1 && poolCanGrow {
+				break // skip BUSY pass if pool can grow
 			}
-			select {
-			case sched.JobLimiter <- struct{}{}:
-				// We can schedule a new test for this server
-				busyJobs = max(busyJobs, len(sched.JobLimiter))
-				checkID := srv.PendingChecks[0]
-				srv.PendingChecks = srv.PendingChecks[1:]
-				sched.waitGroup.Add(1)
-				go runDNSWorker(
-					srv, &template[checkID],
-					srvID, checkID, qryTimeout, sched,
-				)
-				srv.NextQueryAt = now.Add(srvReqInterval)
-				numScheduled++
-			default:
-				// No free slot: give back consumed ratelimit token:
-				sched.RateLimiter.GiveBackOne()
-				// jobLimitReached = true
+			for srvID, srv := range pool.pool {
+				idle := inFlight[srvID] == 0 // not in inFlight: srv is idle
+				if ///////////////////////////////// SKIP SERVER IF:
+				(pass == 0 && !idle) ||           // - BUSY srv on IDLE pass
+				(pass == 1 && idle) ||            // - IDLE srv on BUSY pass
+				len(srv.PendingChecks) == 0 ||    // - nothing to do now
+				srv.NextQueryAt.After(now) ||     // - per‑server rate‑limit
+				!sched.RateLimiter.ConsumeOne() { // - global RPS exceeded
+					continue
+				}
+				select {
+				case sched.JobLimiter <- struct{}{}:
+					// We can schedule a new test for this server
+					inFlight[srvID]++
+					busyJobs = max(busyJobs, len(sched.JobLimiter))
+					checkID := srv.PendingChecks[0]
+					srv.PendingChecks = srv.PendingChecks[1:]
+					sched.waitGroup.Add(1)
+					go runDNSWorker(
+						srv, &template[checkID],
+						srvID, checkID, qryTimeout, sched,
+					)
+					srv.NextQueryAt = now.Add(srvReqInterval)
+					freeJobs--
+					numScheduled++
+					if idle {
+						numScheduledIdle++
+					} else {
+						numScheduledBusy++
+					}
+				default:
+					// No free worker slot: give back the consumed token
+					sched.RateLimiter.GiveBackOne()
+				}
 			}
 		}
-		// notify num of requests just scheduled (for rps count)
+		// notify num of requests just scheduled (for RPS count)
 		if numScheduled > 0 {
-			status.LogRequests(now, numScheduled)
+			status.LogRequests(now, numScheduledIdle, numScheduledBusy)
 			status.UpdateBusyJobs(busyJobs)
 		}
 		// 3) termination condition ------------------------------------------
 		if pool.IsDrained() {
 			break // every server processed and pool emptied
 		}
-		// 4) refill pool if we have RPS budget and nothing scheduled --------
-		if numScheduled == 0 {
-			availableReqs := sched.RateLimiter.Remaining()
-			availableJobs := cap(sched.JobLimiter) - len(sched.JobLimiter)
-			toLoad := min(availableReqs, availableJobs)
-			if toLoad > 0 && pool.NumPending() > 0 && !pool.IsFull() {
-				inserted := pool.LoadN(toLoad)
-				status.UpdatePoolSize(pool.Len())
-				status.Debug(
-					"expand pool by %d. newsz=%d",
-					inserted, pool.Len())
-			} else {
-				time.Sleep(13 * time.Millisecond) // avoid busy-wait
+		// 4) refill pool if we have job/req budget
+		poolGrowth := 0
+		if poolCanGrow && freeJobs != 0 {
+			freeReqs := sched.RateLimiter.Remaining()
+			toLoad := min(freeReqs, freeJobs)
+			if toLoad > 0 {
+				poolGrowth = pool.LoadN(toLoad)
+				if poolGrowth > 0 {
+					status.UpdatePoolSize(pool.Len())
+					status.Debug("expand pool by %d. newsz=%d", poolGrowth, pool.Len())
+				}
 			}
 		}
+		if numScheduled == 0 && poolGrowth == 0 {
+			time.Sleep(13 * time.Millisecond) // avoid busy‑wait
+		}
 	}
-	// END) Once all works are done, close chan & ignore remaining msgs:
+	// END) Once all works are done, wait for remaining workers
 	sched.waitGroup.Wait()
 }
 
