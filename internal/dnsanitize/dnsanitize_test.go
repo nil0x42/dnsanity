@@ -205,6 +205,7 @@ func TestDNSanitizeEndToEnd(t *testing.T) {
         ServerIPs:           []string{"192.0.2.99"}, // unroutable
         Template:            dummyTemplate(),
         MaxThreads:          2,
+		MaxPoolSize:         2,
         GlobRateLimit:       50,
         PerSrvRateLimit:     1,
         PerSrvMaxFailures:   -1, // never drop

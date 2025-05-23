@@ -131,16 +131,16 @@ func TestRenderRemainingTimeFormats(t *testing.T) {
 	t.Parallel()
 	// 1) Unknown progress (<0.1%)
 	s := &StatusReporter{TotalChecks: 1000, TotalServers: 100, StartTime: time.Now()}
-	if got := s.renderRemainingTime(); got != "--" {
-		t.Fatalf("early remainingTime=%q, want \"--\"", got)
+	if got := s.renderRemainingTime(); got != "ETA: --" {
+		t.Fatalf("early remainingTime=%q, want \"ETA: --\"", got)
 	}
 
 	// 2) <1 minute
 	s.DoneChecks, s.TotalChecks = 1, 1
 	s.ValidServers, s.InvalidServers, s.TotalServers = 100, 0, 100
 	s.StartTime = time.Now().Add(-30 * time.Second)
-	if got := s.renderRemainingTime(); got != "<1m" {
-		t.Fatalf("remainingTime <1m unexpected: %q", got)
+	if got := s.renderRemainingTime(); got != "DONE" {
+		t.Fatalf("remainingTime 'DONE' unexpected: %q", got)
 	}
 
 	// 3) Hours format
@@ -173,9 +173,9 @@ func TestRenderLastSecReqCountPurgesOldBatches(t *testing.T) {
 	}()
 
 	// 3 recent requests (<1 s)
-	st.LogRequests(time.Now().Add(-300*time.Millisecond), 3)
+	st.LogRequests(time.Now().Add(-300*time.Millisecond), 2, 1)
 	// 5 stale requests (>1 s)
-	st.LogRequests(time.Now().Add(-1500*time.Millisecond), 5)
+	st.LogRequests(time.Now().Add(-1500*time.Millisecond), 3, 2)
 
 	if got := st.renderLastSecReqCount(); got != 3 {
 		t.Fatalf("expected 3 recent reqs, got %d", got)
@@ -188,7 +188,7 @@ func TestRenderLastSecReqCountPurgesOldBatches(t *testing.T) {
 func TestLogRequestsWithoutPBar(t *testing.T) {
 	t.Parallel()
 	st := newReporterNoTTY()
-	st.LogRequests(time.Now(), 7)
+	st.LogRequests(time.Now(), 4, 3)
 	if st.DoneRequests != 7 {
 		t.Fatalf("DoneRequests not incremented")
 	}

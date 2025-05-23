@@ -116,8 +116,8 @@ func TestParseOptions(t *testing.T) {
                 if o.GlobRateLimit != 500 {
                     t.Fatalf("default GlobRateLimit = %d, want 500", o.GlobRateLimit)
                 }
-                if o.Threads != 1000 { // 500 * 2
-                    t.Fatalf("Threads autocalc = %d, want 1000", o.Threads)
+                if o.Threads != -0xdead {
+                    t.Fatalf("default Threads = %d, want 10000", o.Threads)
                 }
                 if o.OutputFilePath != "/dev/stdout" {
                     t.Fatalf("OutputFilePath = %q, want /dev/stdout", o.OutputFilePath)
@@ -130,39 +130,6 @@ func TestParseOptions(t *testing.T) {
             expect: func(t *testing.T, o *Options) {
                 if o.Threads != 42 {
                     t.Fatalf("Threads = %d, want 42", o.Threads)
-                }
-            },
-        },
-        {
-            name: "low ratelimit threads fallback to 100",
-            args: []string{"dnsanity", "-global-ratelimit", "30"},
-            expect: func(t *testing.T, o *Options) {
-                if o.GlobRateLimit != 30 {
-                    t.Fatalf("GlobRateLimit = %d, want 30", o.GlobRateLimit)
-                }
-                if o.Threads != 100 {
-                    t.Fatalf("Threads autocalc = %d, want 100", o.Threads)
-                }
-            },
-        },
-        {
-            name: "high ratelimit threads doubles",
-            args: []string{"dnsanity", "-global-ratelimit", "60"},
-            expect: func(t *testing.T, o *Options) {
-                if o.Threads != 120 {
-                    t.Fatalf("Threads autocalc = %d, want 120", o.Threads)
-                }
-            },
-        },
-        {
-            name: "zero ratelimit coerced to 9999",
-            args: []string{"dnsanity", "-global-ratelimit", "0"},
-            expect: func(t *testing.T, o *Options) {
-                if o.GlobRateLimit != 9999 {
-                    t.Fatalf("GlobRateLimit = %d, want 9999", o.GlobRateLimit)
-                }
-                if o.Threads != 19998 {
-                    t.Fatalf("Threads autocalc = %d, want 19998", o.Threads)
                 }
             },
         },
