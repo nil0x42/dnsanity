@@ -31,17 +31,13 @@ func exitUsage(format string, a ...interface{}) {
 
 func Init() *Config {
 	conf := &Config{}
-
 	opts, err := ParseOptions()
 	if err != nil {
 		exitUsage("%w", err)
 	}
 
-	conf.TrustedDNSList, err = ParseServerList(opts.TrustedDNS)
-	if err != nil {
-		exitUsage("-trusted-list: %w", err)
-	}
-
+	// TEMPLATE VALIDATION --------------------------------------------
+	// -template
 	if opts.Template == "" {
 		conf.Template, err = dns.NewTemplate(DEFAULT_TEMPLATE)
 	} else {
@@ -50,26 +46,78 @@ func Init() *Config {
 	if err != nil {
 		exitUsage("-template: %w", err)
 	}
-
-	if opts.UntrustedDNS == "" {
-		if tty.IsTTY(os.Stdin) {
-			if opts.Verbose || opts.Template != "" {
-				fmt.Fprintf(os.Stderr, "%s\n", conf.Template.PrettyDump())
-			}
-			exitUsage("-list: Required unless passed through STDIN")
-		}
-		opts.UntrustedDNS = "/dev/stdin"
+	if opts.Verbose { // show template if -verbose
+		fmt.Fprintf(os.Stderr, "%s\n", conf.Template.PrettyDump())
+	}
+	// -trusted-list
+	conf.TrustedDNSList, err = ParseServerList(opts.TrustedDNS)
+	if err != nil {
+		exitUsage("-trusted-list: %w", err)
+	}
+	// -trusted-timeout
+	if opts.TrustedTimeout < 1 {
+		exitUsage("-trusted-timeout: must be >= 1")
+	}
+	// -ratelimit
+	if opts.TrustedRateLimit < 0 {
+		exitUsage("-trusted-ratelimit: must be >= 0")
+	}
+	// -max-attempts
+	if opts.TrustedAttempts < 1 {
+		exitUsage("-trusted-max-attempts: must be >= 1")
 	}
 
+	// SERVERS SANITIZATION -------------------------------------------
+	// -list
+	if opts.UntrustedDNS == "/dev/stdin" {
+		if tty.IsTTY(os.Stdin) {
+			exitUsage("-list: Required unless passed through STDIN")
+		}
+	}
 	conf.UntrustedDNSList, err = ParseServerList(opts.UntrustedDNS)
 	if err != nil {
 		exitUsage("-list: %w", err)
 	}
+	// -timeout
+	if opts.Timeout < 1 {
+		exitUsage("-timeout: must be >= 1")
+	}
+	// -ratelimit
+	if opts.RateLimit < 0 {
+		exitUsage("-ratelimit: must be >= 0")
+	}
+	// -max-attempts
+	if opts.Attempts < 1 {
+		exitUsage("-max-attempts: must be >= 1")
+	}
+	// -max-mismatches
+	if opts.MaxMismatches < 0 {
+		exitUsage("-max-mismatches: must be >= 0")
+	}
 
+	// GENERIC OPTIONS ------------------------------------------------
+	// -o
 	conf.OutputFile, err = OpenFile(opts.OutputFilePath)
 	if err != nil {
 		exitUsage("-o: %w", err)
 	}
+	// -global-ratelimit
+	if opts.GlobRateLimit < 1 {
+		exitUsage("-global-ratelimit: must be >= 1")
+	}
+	// -threads
+	if opts.Threads == -0xdead {
+		opts.Threads = opts.GlobRateLimit * 20 // default
+	} else if opts.Threads < 1 {
+		exitUsage("-threads: must be >= 1")
+	}
+	// -max-poolsize
+	if opts.MaxPoolSize == -0xdead {
+		opts.MaxPoolSize = opts.GlobRateLimit * 20 // default
+	} else if opts.MaxPoolSize < 1 {
+		exitUsage("-max-poolsize: must be >= 1")
+	}
+
 
 	conf.Opts = opts
 	return conf

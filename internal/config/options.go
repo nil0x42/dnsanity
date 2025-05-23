@@ -67,7 +67,7 @@ func ShowHelp() {
 		"   %s-o%s %s[FILE]%s                  file to write output (defaults to %sSTDOUT%s)\n",
 		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
-		"   %s-global-ratelimit%s %sint%s      global max requests per second (default %s300%s)\n",
+		"   %s-global-ratelimit%s %sint%s      global max requests per second (default %s500%s)\n",
 		yel, rst, gra, rst, yel, rst)
 	s += fmt.Sprintf(
 		"   %s-threads%s %sint%s               max concurrency (default: %sauto%s) %s[experts only]%s\n",
@@ -149,11 +149,11 @@ func ParseOptions() (*Options, error) {
 	opts := &Options{}
 	// GENERIC OPTIONS
 	flag.StringVar(&opts.OutputFilePath, "o", "/dev/stdout", "file to write output")
-	flag.IntVar(&opts.GlobRateLimit, "global-ratelimit", 300, "global rate limit")
-	flag.IntVar(&opts.Threads, "threads", -1, "number of threads")
-	flag.IntVar(&opts.MaxPoolSize, "max-poolsize", -1, "limit servers loaded in memory")
+	flag.IntVar(&opts.GlobRateLimit, "global-ratelimit", 500, "global rate limit")
+	flag.IntVar(&opts.Threads, "threads", -0xdead, "number of threads")
+	flag.IntVar(&opts.MaxPoolSize, "max-poolsize", -0xdead, "limit servers loaded in memory")
 	// SERVER SANITIZATION
-	flag.StringVar(&opts.UntrustedDNS, "list", "", "list of DNS servers to sanitize (file or comma separated or stdin)")
+	flag.StringVar(&opts.UntrustedDNS, "list", "/dev/stdin", "list of DNS servers to sanitize (file or comma separated or stdin)")
 	flag.IntVar(&opts.Timeout, "timeout", 4, "timeout in seconds for DNS queries")
 	flag.Float64Var(&opts.RateLimit, "ratelimit", 2.0, "max requests per second per DNS server")
 	flag.IntVar(&opts.Attempts, "max-attempts", 2, "max attempts before marking a mismatching DNS test as failed")
@@ -170,26 +170,16 @@ func ParseOptions() (*Options, error) {
 	flag.BoolVar(&opts.ShowVersion, "version", false, "display version of dnsanity")
 	flag.BoolVar(&opts.Verbose, "verbose", false, "show configuration and template")
 	flag.BoolVar(&opts.Debug, "debug", false, "enable debugging information")
-	flag.Usage = ShowHelp
 
+	flag.Usage = ShowHelp
 	flag.Parse()
 
-	// if opts.ShowHelp || opts.ShowFullHelp {
 	if opts.ShowHelp {
 		flag.Usage()
 		os.Exit(0)
 	}
-
 	if opts.ShowVersion {
 		ShowVersion()
 	}
-
-	if opts.GlobRateLimit < 1 {
-		opts.GlobRateLimit = 9999
-	}
-	if opts.Threads < 1 {
-		opts.Threads = max(200, opts.GlobRateLimit * 4)
-	}
-
 	return opts, nil
 }
