@@ -46,9 +46,6 @@ func Init() *Config {
 	if err != nil {
 		exitUsage("-template: %w", err)
 	}
-	if opts.Verbose { // show template if -verbose
-		fmt.Fprintf(os.Stderr, "%s\n", conf.Template.PrettyDump())
-	}
 	// -trusted-list
 	conf.TrustedDNSList, err = ParseServerList(opts.TrustedDNS)
 	if err != nil {
@@ -71,7 +68,13 @@ func Init() *Config {
 	// -list
 	if opts.UntrustedDNS == "/dev/stdin" {
 		if tty.IsTTY(os.Stdin) {
-			exitUsage("-list: Required unless passed through STDIN")
+			if opts.Verbose { // show template if -verbose
+				tty.SmartFprintf(os.Stderr, "%s\n", conf.Template.PrettyDump())
+				fmt.Fprintf(os.Stderr, "Use `--help` to learn how to use DNSanity\n")
+				os.Exit(1)
+			} else {
+				exitUsage("-list: Required unless passed through STDIN")
+			}
 		}
 	}
 	conf.UntrustedDNSList, err = ParseServerList(opts.UntrustedDNS)

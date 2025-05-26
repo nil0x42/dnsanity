@@ -48,8 +48,8 @@ func ShowHelp() {
 
 	s += fmt.Sprintf("\n")
 	s += fmt.Sprintf(
-		"%sDNSanity is a high-performance DNS validator using template-based verification%s\n",
-		bol, rst)
+		"%s%sDNSanity is a high-performance DNS validator using template-based verification%s\n",
+		rst, bol, rst)
 	s += fmt.Sprintf("\n")
 
 	s += fmt.Sprintf(
@@ -139,7 +139,7 @@ func ShowHelp() {
 func ShowVersion() {
 	tty.SmartFprintf(
 		os.Stdout,
-		"DNSanity %s <http://github.com/nil0x42/dnsanity>",
+		"DNSanity %s <http://github.com/nil0x42/dnsanity>\n",
 		VERSION,
 	)
 	os.Exit(0)
