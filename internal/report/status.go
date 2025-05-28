@@ -41,7 +41,6 @@ var SPINNER = [][]rune{
 	{'▌', '▊', '▉', '▏', '▊'},
 }
 
-
 type StatusReporter struct {
 	// Plumbing:
 	mu						sync.Mutex
@@ -59,29 +58,14 @@ type StatusReporter struct {
 	ValidServers			int
 	InvalidServers			int
 	ServersWithFailures		int
-	// Requests Status:
-	DoneRequests			int
-	requestsLog				RequestsLog
-	PeakReqsInOneSec		int
-	NScheduledIdle			int
-	NScheduledBusy			int
     // Checks Status:
 	TotalChecks				int
 	DoneChecks				int
-	// Pool Status:
-	MaxPoolSize				int
-	PoolSize				int
-	NumServersInPool		int
-	_avg_poolSizeCount		int64
-	_avg_poolSizeSum		int64
-	// Time Tracking:
+	// MISC:
 	StartTime				time.Time
-	// Jobs Tracking:
-	MaxJobs					int
-	BusyJobsPeak			int
-	BusyJobs				int
-	_avg_busyJobsCount		int64
-	_avg_busyJobsSum		int64
+	Requests				RequestsLogger // requests tracking
+	PoolSize				MetricGauge    // pool tracking
+	BusyJobs				MetricGauge    // jobs tracking
 }
 
 
@@ -89,6 +73,7 @@ type StatusReporter struct {
 /* CONSTRUCTOR ------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
 
+// NewStatusReporter sets up StatusReporter, spinner and initial progress bar.
 func NewStatusReporter(
 	title string, ioFiles *IOFiles, set *config.Settings,
 ) *StatusReporter {
@@ -100,6 +85,10 @@ func NewStatusReporter(
 		}
 		return fmt.Sprintf("dropped if >%d tests fail", srvMaxFail)
 	}
+	srvRatelimitStr := func() string {
+		s := fmt.Sprintf("max %.10f", set.PerSrvRateLimit)
+		return strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	}
 	pBarTemplate := fmt.Sprintf(
 		"\n" +
 		"\033[1;97m* %-30s\033[2;37m%%10s - %%s\n" +
@@ -108,9 +97,14 @@ func NewStatusReporter(
 		"%%c Per test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
 		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
 		"%%c │%%s\033[2;37m│\033[0m",
+		// line 0: title
 		title,
-		len(set.ServerIPs), len(set.Template), set.GlobRateLimit, set.MaxThreads,
-		rateLimitRepr(set.PerSrvRateLimit), dropMsg(set.PerSrvMaxFailures),
+		// line 1: Run: ? servers * ? tests ...
+		len(set.ServerIPs), len(set.Template),
+		set.GlobRateLimit, set.MaxThreads,
+		// line 2: Per server: ...
+		srvRatelimitStr(), dropMsg(set.PerSrvMaxFailures),
+		// line 3: Per test: ...
 		set.PerQueryTimeout, set.PerCheckMaxAttempts,
 	)
 	s := &StatusReporter{
@@ -124,9 +118,9 @@ func NewStatusReporter(
 		TotalServers:	len(set.ServerIPs),
 		TotalChecks:	len(set.ServerIPs) * len(set.Template),
 		StartTime:		time.Now(),
-
-		MaxJobs:		set.MaxThreads,
-		MaxPoolSize:	set.MaxPoolSize,
+		Requests:		RequestsLogger{StartTime: time.Now()},
+		PoolSize:		MetricGauge{Max: set.MaxPoolSize},
+		BusyJobs:		MetricGauge{Max: set.MaxThreads},
 	}
 	pBarNLines := strings.Count(s.renderDebugBar() + pBarTemplate, "\n")
 	s.pBarEraser = "\r\033[2K" + strings.Repeat("\033[1A\033[2K", pBarNLines)
@@ -142,32 +136,21 @@ func NewStatusReporter(
 /* PUBLIC API ------------------------------------------------------- */
 /* ------------------------------------------------------------------ */
 
+// UpdatePoolSize logs the current worker-pool size.
 func (s *StatusReporter) UpdatePoolSize(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.NumServersInPool = n
-	if (n > s.PoolSize) {
-		s.PoolSize = n
-	}
-	// --- avg bookkeeping --------------------------------------------------
-	s._avg_poolSizeSum += int64(n)
-	s._avg_poolSizeCount++
+	s.PoolSize.Log(n)
 }
 
+// UpdateBusyJobs logs the number of goroutines currently busy.
 func (s *StatusReporter) UpdateBusyJobs(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.BusyJobs = n
-	if (n > s.BusyJobsPeak) {
-		s.BusyJobsPeak = n
-	}
-	// --- avg bookkeeping --------------------------------------------------
-	s._avg_busyJobsSum += int64(n)
-	s._avg_busyJobsCount++
+	s.BusyJobs.Log(n)
 }
 
+// AddDoneChecks adds to done/total check counters.
 func (s *StatusReporter) AddDoneChecks(addDoneChecks, addTotalChecks int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -178,20 +161,14 @@ func (s *StatusReporter) AddDoneChecks(addDoneChecks, addTotalChecks int) {
 	}
 }
 
+// LogRequests records one idle/busy requests batch.
 func (s *StatusReporter) LogRequests(t time.Time, nIdle, nBusy int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	n := nIdle + nBusy
-	s.DoneRequests += n
-	if s.hasPBar() {
-		// only log reqBatches if pbar is active to avoid accumulating...
-		s.requestsLog.LogRequests(t, n)
-	}
-	s.NScheduledIdle += nIdle
-	s.NScheduledBusy += nBusy
+	s.Requests.Log(t, nIdle, nBusy)
 }
 
+// ReportFinishedServer updates stats and writes results for one server.
 func (s *StatusReporter) ReportFinishedServer(srv *dns.ServerContext) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -215,6 +192,7 @@ func (s *StatusReporter) ReportFinishedServer(srv *dns.ServerContext) {
 	}
 }
 
+// Debug prints a formatted debug line when -debug is active.
 func (s *StatusReporter) Debug(format string, args ...interface{}) {
 	if s.hasDebug() {
 		s.mu.Lock()
@@ -228,6 +206,7 @@ func (s *StatusReporter) Debug(format string, args ...interface{}) {
 	}
 }
 
+// Stop stops ticker, renders final bar and cleans up.
 func (s *StatusReporter) Stop() {
 	close(s.quit)
 	s.redrawTicker.Stop()
@@ -243,6 +222,7 @@ func (s *StatusReporter) Stop() {
 /* INTERNAL UTILS --------------------------------------------------- */
 /* ------------------------------------------------------------------ */
 
+// loop drives spinner redraws until quit.
 func (s *StatusReporter) loop() {
 	for {
 		select {
@@ -259,37 +239,27 @@ func (s *StatusReporter) loop() {
 	}
 }
 
+// hasPBar returns true when a TTY progress-bar is active.
 func (s *StatusReporter) hasPBar() bool {
 	return s.io.TTYFile != nil
 }
 
+// hasDebug returns true when debug logging is enabled.
 func (s *StatusReporter) hasDebug() bool {
 	return s.io.DebugFile != nil
 }
 
+// isFinished reports whether all servers have been processed.
 func (s *StatusReporter) isFinished() bool {
 	return s.doneServers() == s.TotalServers
 }
 
+// doneServers returns the number of servers already processed.
 func (s *StatusReporter) doneServers() int {
 	return s.ValidServers + s.InvalidServers
 }
 
-func rateLimitRepr(num float64) string {
-	s := fmt.Sprintf("max %.10f", num)
-	return strings.TrimRight(strings.TrimRight(s, "0"), ".")
-}
-
-// percent := ScaleValue(cur, total, 100)     // to get percentage
-// ratio   := ScaleValue(cur, total, 1.0)     // to get ratio [0,1]
-// bps     := ScaleValue(cur, total, 10000)   // per 10000...
-func scaleValue(value, total, scale int) float64 {
-	if total == 0 {
-		return 0
-	}
-	return float64(scale) * (float64(value) / float64(total))
-}
-
+// fWrite outputs str to file (or caches) while handling TTY/ANSI.
 func (s *StatusReporter) fWrite(file io.Writer, str string){
 	if file == nil {
 		return
@@ -308,46 +278,20 @@ func (s *StatusReporter) fWrite(file io.Writer, str string){
 	}
 }
 
+// scaleValue returns value/total scaled to `scale`.
+func scaleValue(value, total, scale int) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(scale) * (float64(value) / float64(total))
+}
+
 
 /* ------------------------------------------------------------------ */
 /* INTERNAL RENDERING ----------------------------------------------- */
 /* ------------------------------------------------------------------ */
 
-func (s *StatusReporter) renderRemainingTime() string {
-	if s.isFinished() {
-		return "DONE"
-	}
-	reqsRate := scaleValue(s.DoneChecks, s.TotalChecks, 1)
-	rate := reqsRate
-	if s.doneServers() > 0 { // then give more weight for srvsRate
-		srvsRate := scaleValue(s.doneServers(), s.TotalServers, 1)
-		rate = (reqsRate + srvsRate * 4) / 5
-	}
-	if rate < 0.001 {
-		return "ETA: --" // unknown before 0.1% progress
-	}
-	elapsed := time.Since(s.StartTime)
-	totalExpected := time.Duration(float64(elapsed) / rate)
-	remaining := max(0, totalExpected - elapsed)
-	// --- human‑friendly formatting ----------------------------------------
-	secs := int(remaining.Seconds() + 0.5) // round half‑up
-	if secs < 60 {
-		return "ETA: <1m"
-	}
-	mins   := secs / 60
-	days   := mins / (24 * 60)
-	hours  := (mins / 60) % 24
-	minute := mins % 60
-	switch {
-	case days > 0:
-		return fmt.Sprintf("ETA: %dd %dh", days, hours)
-	case hours > 0:
-		return fmt.Sprintf("ETA: %dh %dm", hours, minute)
-	default:
-		return fmt.Sprintf("ETA: %dm", minute)
-	}
-}
-
+// renderElapsedTime returns elapsed-time string in d h / h m / m s / s.
 func (s *StatusReporter) renderElapsedTime() string {
     sec := int(time.Since(s.StartTime).Seconds())
     const D, H, M = 86400, 3600, 60
@@ -363,22 +307,36 @@ func (s *StatusReporter) renderElapsedTime() string {
     }
 }
 
-// renderLastSecReqCount purges old batches from requestsLog
-// and return total sum of requests made during last second.
-func (s *StatusReporter) renderLastSecReqCount() int {
-	c := s.requestsLog.CountLastSecRequests()
-	if c > s.PeakReqsInOneSec {
-		s.PeakReqsInOneSec = c
+// renderRemainingTime returns "DONE" or a brief human-readable ETA.
+func (s *StatusReporter) renderRemainingTime() string {
+	if s.isFinished() {
+		return "DONE"
 	}
-	return c
+	// Weighted progress : 80 % servers, 20 % checks.
+	progress := scaleValue(s.DoneChecks, s.TotalChecks, 1)
+	if srvPct := scaleValue(s.doneServers(), s.TotalServers, 1); srvPct > 0 {
+		progress = (srvPct*4 + progress) / 5
+	}
+	if progress < 0.001 {
+		return "ETA: --"
+	}
+    const D, H, M = 86400, 3600, 60
+	elapsed := time.Since(s.StartTime)
+	remain  := time.Duration(float64(elapsed)*(1/progress - 1))
+	switch sec := int(remain.Seconds()); {
+	case sec < M:
+		return "ETA: <1m"
+	case sec < H:
+		return fmt.Sprintf("ETA: %dm", sec/M)
+	case sec < D:
+		return fmt.Sprintf("ETA: %dh %dm", sec/H, (sec%H)/M)
+	default:
+		return fmt.Sprintf("ETA: %dd %dh", sec/D, (sec%D)/H)
+	}
 }
 
-// makeBar renders a 60‑rune progress bar composed of Braille blocks.
-// The green (left) segment represents valid servers, the red (right)
-// segment represents invalid ones.  The bar is built from rune slices so
-// any trimming removes entire UTF‑8 glyphs, never partial bytes.  When the
-// bar would overflow 60 runes, the side that is only one rune wide (if any)
-// is preserved and the opposite side is shortened by exactly one rune.
+// renderBrailleBar outputs a 60-rune Braille bar: green valid blocks left,
+// red invalid blocks right, rune-aligned and auto-trimmed to fit.
 func (s *StatusReporter) renderBrailleBar() string {
 	const (
 		ptsPerChr = 8   // full Braille block (⣿) = 8 pts
@@ -446,6 +404,8 @@ func (s *StatusReporter) renderBrailleBar() string {
 		"\033[31m" + string(invalidRunes)
 }
 
+// renderPBar builds the multi-line spinner/progress bar
+// (prepends debug bar if enabled).
 func (s *StatusReporter) renderPBar() string {
 	renderSrvStr := func(r string, n int) string { // OK/KO server str
 		percent := int(scaleValue(n, s.TotalServers, 100))
@@ -458,10 +418,10 @@ func (s *StatusReporter) renderPBar() string {
 		s.renderRemainingTime(),
 		// line 1: Run: N servers ...
 		SPINNER[s.spinnerFrame][0],
-		s.BusyJobs,
+		s.BusyJobs.Current,
 		// line 2: Each server: ...
 		SPINNER[s.spinnerFrame][1],
-		s.NumServersInPool,
+		s.PoolSize.Current,
 		// line 3: Each test: ...
 		SPINNER[s.spinnerFrame][2],
 		int(scaleValue(s.DoneChecks, s.TotalChecks, 100)),
@@ -469,7 +429,7 @@ func (s *StatusReporter) renderPBar() string {
 		// line 4: |OK: N%     KO: N%| ...
 		SPINNER[s.spinnerFrame][3],
 		renderSrvStr("OK", s.ValidServers),
-		s.renderLastSecReqCount(),
+		s.Requests.LastSecCount(),
 		renderSrvStr("KO", s.InvalidServers),
 		// line 5: |⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿| ...
 		SPINNER[s.spinnerFrame][4],
@@ -481,30 +441,25 @@ func (s *StatusReporter) renderPBar() string {
 	return pBar
 }
 
-// only activated if `-debug` is set
+// renderDebugBar formats the yellow metrics block shown only in -debug mode.
 func (s *StatusReporter) renderDebugBar() string {
 	if !s.hasDebug() {
 		return ""
 	}
-	elapsedUs := time.Since(s.StartTime).Microseconds() + 500_000 // +500ms
-	// --- averages ---------------------------------------------------------
-	avgJobs := int(s._avg_busyJobsSum / max(1, s._avg_busyJobsCount))
-	avgPool := int(s._avg_poolSizeSum / max(1, s._avg_poolSizeCount))
-	avgReqPerSec := int64(s.DoneRequests) * 1_000_000 / max(1, elapsedUs)
 	return fmt.Sprintf(
 		"\n\033[33m" +
 		"* [jobs] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n" +
 		"* [pool] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n" +
 		"* [reqs] cur:%-7d peak:%-7d avg:%-7d all:%-7d idle:%-7d busy:%-7d",
 		// line 1: [jobs]
-		s.BusyJobs, s.BusyJobsPeak,
-		avgJobs, s.MaxJobs,
+		s.BusyJobs.Current, s.BusyJobs.Peak,
+		s.BusyJobs.Avg(), s.BusyJobs.Max,
 		// line 2: [pool]
-		s.NumServersInPool, s.PoolSize,
-		avgPool, s.MaxPoolSize,
+		s.PoolSize.Current, s.PoolSize.Peak,
+		s.PoolSize.Avg(), s.PoolSize.Max,
 		// line 2: [reqs]
-		s.renderLastSecReqCount(), s.PeakReqsInOneSec,
-		avgReqPerSec, s.DoneRequests,
-		s.NScheduledIdle, s.NScheduledBusy,
+		s.Requests.LastSecCount(), s.Requests.OneSecPeak,
+		s.Requests.OneSecAvg(), s.Requests.Total(),
+		s.Requests.Idle, s.Requests.Busy,
 	)
 }
