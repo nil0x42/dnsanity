@@ -37,6 +37,8 @@ func ResolveDNS(
 			answer.Status = "TIMEOUT"
 		} else if strings.HasSuffix(err.Error(), "read: connection refused") {
 			answer.Status = "ECONNREFUSED"
+		} else if strings.HasSuffix(err.Error(), "read: no route to host") {
+			answer.Status = "EHOSTUNREACH"
 		} else if strings.HasSuffix(err.Error(), "connect: network is unreachable") {
 			answer.Status = "ENETUNREACH (no internet)"
 		} else {
