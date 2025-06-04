@@ -190,6 +190,7 @@ func scheduleChecks(
 			}
 		}
 		if numScheduled == 0 && poolGrowth == 0 {
+			status.UpdatePoolSize(pool.Len())
 			time.Sleep(13 * time.Millisecond) // avoid busy‑wait
 		}
 	}
