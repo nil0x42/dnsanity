@@ -28,7 +28,7 @@ func validateTemplate(
 		GlobRateLimit:			conf.Opts.GlobRateLimit,
 		// per server
 		PerSrvRateLimit:		conf.Opts.TrustedRateLimit,
-		PerSrvMaxFailures:		len(conf.Template), // never drop Trusted Srvs
+		PerSrvMaxFailures:		len(conf.Template) + 1, // never drop Trusted Srvs
 		// per check
 		PerCheckMaxAttempts:	conf.Opts.TrustedAttempts,
 		// per dns query
