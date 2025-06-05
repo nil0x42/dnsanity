@@ -92,10 +92,13 @@ func (da *DNSAnswer) ToString() string {
 
 // IsWorthRetrying is true if this answer is elligible for a retry
 func (da *DNSAnswer) IsWorthRetrying() bool {
-	switch da.Status {
-	case "TIMEOUT", "SERVFAIL":
-		return true // transient, worth another shot
-	default:
-		return false // permanent or deterministic mismatch
-	}
+        if da == nil {
+                return false
+        }
+        switch da.Status {
+        case "TIMEOUT", "SERVFAIL":
+                return true // transient, worth another shot
+        default:
+                return false // permanent or deterministic mismatch
+        }
 }
