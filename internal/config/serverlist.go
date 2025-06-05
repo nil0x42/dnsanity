@@ -1,19 +1,22 @@
 package config
 
 import (
-	"os"
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
-	"errors"
 )
 
-
-// return a slice containing all DNS servers (IPv4) from
-// a string or file.
-// > parseServerList("8.8.8.8, 1.1.1.1") -> [8.8.8.8 1.1.1.1]
-// > parseServerList("/tmp/srv.lst") -> [1.1.1.1 2.2.2.2 3.3.3.3 ...]
+// ParseServerList parses input and returns the DNS server IP addresses it
+// contains. The input may be a comma‑separated string or a path to a file and
+// supports both IPv4 and IPv6 addresses.
+//
+// Example:
+//
+//	ParseServerList("8.8.8.8, 1.1.1.1")
+//	ParseServerList("/tmp/srv.lst")
 func ParseServerList(input string) ([]string, error) {
 	var servers []string
 	var scanner *bufio.Scanner
