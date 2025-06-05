@@ -80,7 +80,7 @@ func TestResolveDNS(t *testing.T) {
         {
             name:       "InvalidServer",
             domain:     "example.com",
-            server:     "1203.0.113.1", // TEST‑NET‑3, usually unroutable
+            server:     "203.0.113.1", // TEST‑NET‑3, usually unroutable
             timeout:    500 * time.Millisecond,
             wantStatus: ": no such host",
         },
