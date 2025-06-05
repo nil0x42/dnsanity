@@ -108,6 +108,7 @@ func TestApplyResultsPaths(t *testing.T) {
     // Retry path -----------------------------------------------------------
     srv = helperServer(2)
     res.Passed = false
+    res.Answer = &dns.DNSAnswer{DNSAnswerData: dns.DNSAnswerData{Status: "TIMEOUT"}}
     applyResults(srv, &res, 2, st)
     if len(srv.PendingChecks) != 1 || srv.Checks[0].AttemptsLeft != 1 {
         t.Fatal("applyResults retry path incorrect")
