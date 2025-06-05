@@ -218,7 +218,7 @@ func applyResults(
 		return
 	}
 	/* ---------- failure, retry remaining ------------------------------- */
-	if chk.AttemptsLeft > 0 {
+	if chk.AttemptsLeft > 0 && res.Answer.IsWorthRetrying() {
 		// re-queue the check at the front
 		srv.PendingChecks = append([]int{res.CheckID}, srv.PendingChecks...)
 		status.AddDoneChecks(+1, +1) // +1 done, +1 total
