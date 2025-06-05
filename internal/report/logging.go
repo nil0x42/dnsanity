@@ -26,7 +26,7 @@ type IOFiles struct {
 // MetricGauge tracks an integer metric (current, peak, average).
 // Not concurrency-safe.
 type MetricGauge struct {
-	Max       int   // optional: theoratical max
+	Max       int   // optional: theoretical max
 	Current   int   // last recorded value
 	Peak      int   // highest ever recorded value
 	totalSum  int64 // sum of all values logged
