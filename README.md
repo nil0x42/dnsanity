@@ -97,7 +97,7 @@ lists.isc.org        A=149.20.*                           # A record matching pa
 app-c0a801fb.nip.io  A=192.168.1.251                      # specific single A record
 retro.localtest.me   A=127.0.0.1                          # specific single A record
 ```
-DNSanity ships with a default template — each line states the expected DNS response for a domain.  
+DNSanity ships with a [default template](https://github.com/nil0x42/dnsanity/blob/master/internal/config/constants.go#L13C1-L46) — each line states the expected DNS response for a domain.  
 Need different rules? Supply your own file with `-template` option.  
 
 
