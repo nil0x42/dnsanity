@@ -90,15 +90,21 @@ func (da *DNSAnswer) ToString() string {
 	return out
 }
 
-// IsWorthRetrying is true if this answer is elligible for a retry
+// IsWorthRetrying returns true if the answer is eligible for a retry.
+// Criteria:
+// - Transient DNS errors: TIMEOUT or SERVFAIL
+// - Truncated successful response: NOERROR with Truncated == true (retry over TCP may succeed)
 func (da *DNSAnswer) IsWorthRetrying() bool {
-        if da == nil {
-                return false
-        }
-        switch da.Status {
-        case "TIMEOUT", "SERVFAIL":
-                return true // transient, worth another shot
-        default:
-                return false // permanent or deterministic mismatch
-        }
+	if da == nil {
+		return false
+	}
+	switch da.Status {
+	case "TIMEOUT", "SERVFAIL":
+		return true // transient, worth another shot
+	case "NOERROR":
+		// Retry when the response was truncated; a TCP retry may succeed.
+		return da.Truncated
+	default:
+		return false // permanent or deterministic mismatch
+	}
 }
