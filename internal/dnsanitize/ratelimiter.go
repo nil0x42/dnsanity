@@ -13,9 +13,9 @@ import (
 // using Go 1.19 atomic wrappers. It guarantees zero mutex usage,
 // idempotent start/stop, and strict parameter validation.
 type RateLimiter struct {
-	tokens         atomic.Uint64  // current number of available tokens
-	maxTokens      atomic.Uint64  // maximum number of tokens (burst capacity)
-	refillAmount   atomic.Uint64  // tokens added each interval
+	tokens         atomic.Uint64 // current number of available tokens
+	maxTokens      atomic.Uint64 // maximum number of tokens (burst capacity)
+	refillAmount   atomic.Uint64 // tokens added each interval
 	refillInterval time.Duration // interval between refills
 
 	startOnce sync.Once          // ensures StartRefiller is called only once
@@ -43,7 +43,7 @@ func NewRateLimiter(globalRateLimit int, burstTime time.Duration) *RateLimiter {
 
 	// derive interval to ensure exact average rate
 	realInterval := time.Duration(
-		float64(refillAmount)/float64(globalRateLimit)*float64(time.Second),
+		float64(refillAmount) / float64(globalRateLimit) * float64(time.Second),
 	)
 	if realInterval < time.Nanosecond {
 		panic("dnsanitize: computed refillInterval < 1ns; parameters too extreme")
@@ -55,8 +55,8 @@ func NewRateLimiter(globalRateLimit int, burstTime time.Duration) *RateLimiter {
 	// build bucket
 	tb := &RateLimiter{
 		refillInterval: realInterval,
-		ctx:             ctx,
-		cancel:          cancel,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 	tb.tokens.Store(refillAmount)
 	tb.maxTokens.Store(refillAmount)

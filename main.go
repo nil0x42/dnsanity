@@ -2,42 +2,41 @@ package main
 
 import (
 	// standard
-	"os"
-	"strings"
 	"bytes"
 	"fmt"
+	"os"
+	"strings"
 	// external
 	// local
 	"github.com/nil0x42/dnsanity/internal/config"
-	"github.com/nil0x42/dnsanity/internal/tty"
-	"github.com/nil0x42/dnsanity/internal/report"
 	"github.com/nil0x42/dnsanity/internal/dnsanitize"
+	"github.com/nil0x42/dnsanity/internal/report"
+	"github.com/nil0x42/dnsanity/internal/tty"
 )
 
-
 func validateTemplate(
-	conf		*config.Config,
-	ttyFile		*os.File,
+	conf *config.Config,
+	ttyFile *os.File,
 ) bool {
 	settings := &config.Settings{
 		// global
-		ServerIPs:				conf.TrustedDNSList,
-		Template:				conf.Template,
-		MaxThreads:				conf.Opts.Threads,
-		MaxPoolSize:			conf.Opts.MaxPoolSize,
-		GlobRateLimit:			conf.Opts.GlobRateLimit,
+		ServerIPs:     conf.TrustedDNSList,
+		Template:      conf.Template,
+		MaxThreads:    conf.Opts.Threads,
+		MaxPoolSize:   conf.Opts.MaxPoolSize,
+		GlobRateLimit: conf.Opts.GlobRateLimit,
 		// per server
-		PerSrvRateLimit:		conf.Opts.TrustedRateLimit,
-		PerSrvMaxFailures:		len(conf.Template) + 1, // never drop Trusted Srvs
+		PerSrvRateLimit:   conf.Opts.TrustedRateLimit,
+		PerSrvMaxFailures: len(conf.Template) + 1, // never drop Trusted Srvs
 		// per check
-		PerCheckMaxAttempts:	conf.Opts.TrustedAttempts,
+		PerCheckMaxAttempts: conf.Opts.TrustedAttempts,
 		// per dns query
-		PerQueryTimeout:		conf.Opts.TrustedTimeout,
+		PerQueryTimeout: conf.Opts.TrustedTimeout,
 	}
 	buffer := &bytes.Buffer{}
 	ioFiles := &report.IOFiles{
-		TTYFile:				ttyFile,
-		VerboseFile:			buffer, // write to buffer for later
+		TTYFile:     ttyFile,
+		VerboseFile: buffer, // write to buffer for later
 	}
 	status := report.NewStatusReporter(
 		"[step 1/2] Template validation",
@@ -51,13 +50,13 @@ func validateTemplate(
 		errMsg := "Template validation error"
 		tty.SmartFprintf(
 			os.Stderr,
-			"%s\n" +
-			"\033[1;31m[-] %s: (%d/%d trusted servers failed)\n" +
-			"[-] Possible reasons:\n" +
-			"    - Unreliable internet connection\n" +
-			"    - Outdated template entries\n" +
-			"    - Trusted servers not so trustworthy\n" +
-			"\033[0m",
+			"%s\n"+
+				"\033[1;31m[-] %s: (%d/%d trusted servers failed)\n"+
+				"[-] Possible reasons:\n"+
+				"    - Unreliable internet connection\n"+
+				"    - Outdated template entries\n"+
+				"    - Trusted servers not so trustworthy\n"+
+				"\033[0m",
 			buffer.String(), errMsg,
 			status.ServersWithFailures, len(settings.ServerIPs),
 		)
@@ -67,28 +66,28 @@ func validateTemplate(
 }
 
 func sanitizeServers(
-	conf		*config.Config,
-	ttyFile		*os.File,
+	conf *config.Config,
+	ttyFile *os.File,
 ) {
 	settings := &config.Settings{
 		// global
-		ServerIPs:				conf.UntrustedDNSList,
-		Template:				conf.Template,
-		MaxThreads:				conf.Opts.Threads,
-		MaxPoolSize:			conf.Opts.MaxPoolSize,
-		GlobRateLimit:			conf.Opts.GlobRateLimit,
+		ServerIPs:     conf.UntrustedDNSList,
+		Template:      conf.Template,
+		MaxThreads:    conf.Opts.Threads,
+		MaxPoolSize:   conf.Opts.MaxPoolSize,
+		GlobRateLimit: conf.Opts.GlobRateLimit,
 		// per server
-		PerSrvRateLimit:		conf.Opts.RateLimit,
-		PerSrvMaxFailures:		conf.Opts.MaxMismatches,
+		PerSrvRateLimit:   conf.Opts.RateLimit,
+		PerSrvMaxFailures: conf.Opts.MaxMismatches,
 		// per check
-		PerCheckMaxAttempts:	conf.Opts.Attempts,
+		PerCheckMaxAttempts: conf.Opts.Attempts,
 		// per dns query
-		PerQueryTimeout:		conf.Opts.Timeout,
+		PerQueryTimeout: conf.Opts.Timeout,
 	}
 
 	ioFiles := &report.IOFiles{
-		TTYFile:				ttyFile,
-		OutputFile:				conf.OutputFile,
+		TTYFile:    ttyFile,
+		OutputFile: conf.OutputFile,
 	}
 	if conf.Opts.Verbose {
 		ioFiles.VerboseFile = os.Stderr
@@ -112,7 +111,7 @@ func sanitizeServers(
 	}
 	reportStr := fmt.Sprintf(
 		"[*] Valid servers: %d/%d (%.1f%%)",
-		status.ValidServers, status.TotalServers, successRate * 100,
+		status.ValidServers, status.TotalServers, successRate*100,
 	)
 	if ttyFile != nil {
 		fmt.Fprintf(ttyFile, "\033[1;34m%s\033[0m\n", reportStr)

@@ -1,20 +1,19 @@
 package dns
 
 import (
-	"strings"
-	"time"
 	"context"
 	"net"
+	"strings"
+	"time"
 
 	"github.com/miekg/dns"
 )
 
-
 func ResolveDNS(
-	domain		string,
-	dnsServer	string,
-	timeout		time.Duration,
-	ctx			context.Context,
+	domain string,
+	dnsServer string,
+	timeout time.Duration,
+	ctx context.Context,
 ) *DNSAnswer {
 	client := &dns.Client{
 		Timeout: timeout,
@@ -30,7 +29,7 @@ func ResolveDNS(
 
 	// DNS resolution
 	// net.JoinHostPort() is needed for ipv6 (bracket expansion):
-	hostAndPort := net.JoinHostPort(dnsServer, "53") 
+	hostAndPort := net.JoinHostPort(dnsServer, "53")
 	response, _, err := client.ExchangeContext(ctx, message, hostAndPort)
 	if err != nil {
 		if strings.HasSuffix(err.Error(), "i/o timeout") {

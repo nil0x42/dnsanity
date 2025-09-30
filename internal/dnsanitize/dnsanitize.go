@@ -5,10 +5,9 @@ import (
 	"time"
 
 	"github.com/nil0x42/dnsanity/internal/config"
-	"github.com/nil0x42/dnsanity/internal/report"
 	"github.com/nil0x42/dnsanity/internal/dns"
+	"github.com/nil0x42/dnsanity/internal/report"
 )
-
 
 // ---------------------------------------------------------------------------
 // Worker & scheduler plumbing -----------------------------------------------
@@ -16,44 +15,46 @@ import (
 
 // WorkerResult is used by goroutines to send back the final DNSAnswer.
 type WorkerResult struct {
-    SrvID		int					// srv id in pool
-    CheckID		int					// check index
-    Answer		*dns.DNSAnswer		// received answer
-    Passed		bool				// equals? result
+	SrvID   int            // srv id in pool
+	CheckID int            // check index
+	Answer  *dns.DNSAnswer // received answer
+	Passed  bool           // equals? result
 }
 
 type QueryScheduler struct {
-	waitGroup	sync.WaitGroup
-	JobLimiter	chan struct{}
-	RateLimiter	*RateLimiter
-	Results		chan WorkerResult // worker results are sent here
+	waitGroup   sync.WaitGroup
+	JobLimiter  chan struct{}
+	RateLimiter *RateLimiter
+	Results     chan WorkerResult // worker results are sent here
 }
 
 func runDNSWorker(
-	srv			*dns.ServerContext,	// server context
-	check		*dns.TemplateEntry,	// template check
-	srvID		int,				// server ID (in pool)
-	checkID		int,				// check ID (template index)
-	timeout		time.Duration,		// DNS query timeout
-	sched		*QueryScheduler,	// scheduler
+	srv *dns.ServerContext, // server context
+	check *dns.TemplateEntry, // template check
+	srvID int, // server ID (in pool)
+	checkID int, // check ID (template index)
+	timeout time.Duration, // DNS query timeout
+	sched *QueryScheduler, // scheduler
 ) {
 	defer sched.waitGroup.Done()
 	answer := dns.ResolveDNS(check.Domain, srv.IPAddress, timeout, srv.Ctx)
 	sched.Results <- WorkerResult{
-		SrvID:			srvID,
-		CheckID:		checkID,
-		Answer:			answer,
-		Passed:			check.Matches(answer),
+		SrvID:   srvID,
+		CheckID: checkID,
+		Answer:  answer,
+		Passed:  check.Matches(answer),
 	}
-	<- sched.JobLimiter
+	<-sched.JobLimiter
 }
 
 // ---------------------------------------------------------------------------
-//  PUBLIC ENTRYPOINT --------------------------------------------------------
+//
+//	PUBLIC ENTRYPOINT --------------------------------------------------------
+//
 // ---------------------------------------------------------------------------
 func DNSanitize(
-	s		*config.Settings,
-	status	*report.StatusReporter,
+	s *config.Settings,
+	status *report.StatusReporter,
 ) {
 	qryTimeout := time.Duration(s.PerQueryTimeout) * time.Second
 	srvReqInterval := time.Duration(0)
@@ -61,12 +62,12 @@ func DNSanitize(
 		srvReqInterval = time.Duration(float64(time.Second) / s.PerSrvRateLimit)
 	}
 
-    // init server pool
+	// init server pool
 	pool := NewServerPool(
 		s.MaxPoolSize, s.ServerIPs, s.Template, s.PerCheckMaxAttempts)
 
 	// init scheduler
-	maxThreads := min(s.MaxThreads, len(s.ServerIPs) * len(s.Template))
+	maxThreads := min(s.MaxThreads, len(s.ServerIPs)*len(s.Template))
 	sched := &QueryScheduler{
 		JobLimiter:  make(chan struct{}, maxThreads),
 		Results:     make(chan WorkerResult, maxThreads),
@@ -84,18 +85,18 @@ func DNSanitize(
 // scheduleChecks is the core scheduler that dispatches DNS queries,
 // observes concurrency limits, rate limits, and failure thresholds.
 func scheduleChecks(
-	pool            *ServerPool,
-	template        dns.Template,
-	sched           *QueryScheduler,
-	status          *report.StatusReporter,
-	qryTimeout      time.Duration,
-	srvReqInterval  time.Duration,
-	srvMaxFailures  int,
+	pool *ServerPool,
+	template dns.Template,
+	sched *QueryScheduler,
+	status *report.StatusReporter,
+	qryTimeout time.Duration,
+	srvReqInterval time.Duration,
+	srvMaxFailures int,
 ) {
 	inFlight := make(map[int]int)
 	for {
 		// 1) async collection of worker results -----------------------------
-		collectLoop:
+	collectLoop:
 		for {
 			select {
 			case res := <-sched.Results:
@@ -133,12 +134,12 @@ func scheduleChecks(
 			}
 			for srvID, srv := range pool.pool {
 				idle := inFlight[srvID] == 0 // not in inFlight: srv is idle
-				if ///////////////////////////////// SKIP SERVER IF:
-				(pass == 0 && !idle) ||           // - BUSY srv on IDLE pass
-				(pass == 1 && idle) ||            // - IDLE srv on BUSY pass
-				len(srv.PendingChecks) == 0 ||    // - nothing to do now
-				srv.NextQueryAt.After(now) ||     // - per‑server rate‑limit
-				!sched.RateLimiter.ConsumeOne() { // - global RPS exceeded
+				if                           ///////////////////////////////// SKIP SERVER IF:
+				(pass == 0 && !idle) ||      // - BUSY srv on IDLE pass
+					(pass == 1 && idle) || // - IDLE srv on BUSY pass
+					len(srv.PendingChecks) == 0 || // - nothing to do now
+					srv.NextQueryAt.After(now) || // - per‑server rate‑limit
+					!sched.RateLimiter.ConsumeOne() { // - global RPS exceeded
 					continue
 				}
 				select {
@@ -202,10 +203,10 @@ func scheduleChecks(
 // and reflects the change into the shared Status struct.
 // This runs in the scheduler goroutine (single-threaded),
 func applyResults(
-	srv				*dns.ServerContext, // server
-	res				*WorkerResult, // worker result
-	srvMaxFailures	int, // max allowed non-passing checks per server
-	status			*report.StatusReporter,
+	srv *dns.ServerContext, // server
+	res *WorkerResult, // worker result
+	srvMaxFailures int, // max allowed non-passing checks per server
+	status *report.StatusReporter,
 ) {
 	chk := &srv.Checks[res.CheckID]
 	chk.AttemptsLeft--

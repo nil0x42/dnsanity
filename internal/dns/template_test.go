@@ -1,13 +1,13 @@
 package dns
 
 import (
+	"errors"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-    "errors"
-    "path/filepath"
 )
 
 // TestNewTemplateEntry_Valid ensures that a well‑formed line is parsed correctly.
@@ -36,10 +36,10 @@ func TestNewTemplateEntry_Valid(t *testing.T) {
 // TestNewTemplateEntry_Invalid covers all error branches inside NewTemplateEntry().
 func TestNewTemplateEntry_Invalid(t *testing.T) {
 	cases := []string{
-		"",                                      // empty line ➜ <2 tokens
-		"onlydomain",                            // single token ➜ <2 tokens
-		"bad.com AAAA=::1",                      // unsupported record ➜ invalid record
-		"bad.com A=1.1.1.1||BLAH",               // alternative with unsupported token
+		"",                        // empty line ➜ <2 tokens
+		"onlydomain",              // single token ➜ <2 tokens
+		"bad.com AAAA=::1",        // unsupported record ➜ invalid record
+		"bad.com A=1.1.1.1||BLAH", // alternative with unsupported token
 	}
 	for _, c := range cases {
 		if _, err := NewTemplateEntry(c); err == nil {
@@ -51,12 +51,12 @@ func TestNewTemplateEntry_Invalid(t *testing.T) {
 // TestGlobMatch exercises the globMatch helper with tricky patterns.
 func TestGlobMatch(t *testing.T) {
 	positive := map[string]string{
-		"192.168.*.*":           "192.168.10.20",
-		"1.1.*.1":               "1.1.99.1",
-		"*.example.com":         "sub.domain.EXAMPLE.com", // case‑insensitive
-		"*.*.*.*":               "255.255.255.255",
-		"foo**bar*baz":          "foobarbaz",            // multiple consecutive '*'
-		"foo**bar*baz2":         "fooxbarxxbaz2",         // complex skip
+		"192.168.*.*":   "192.168.10.20",
+		"1.1.*.1":       "1.1.99.1",
+		"*.example.com": "sub.domain.EXAMPLE.com", // case‑insensitive
+		"*.*.*.*":       "255.255.255.255",
+		"foo**bar*baz":  "foobarbaz",     // multiple consecutive '*'
+		"foo**bar*baz2": "fooxbarxxbaz2", // complex skip
 	}
 	for pattern, value := range positive {
 		if !globMatch(pattern, value) {
@@ -207,75 +207,74 @@ func TestNewTemplateFromFile(t *testing.T) {
 	}
 }
 
-
 // createTempFile is a helper that writes content to a fresh temporary file and returns the file path and a cleanup func.
 func createTempFile(t *testing.T, content string) (string, func()) {
-    t.Helper()
-    tmp, err := ioutil.TempFile("", "tpl*.txt")
-    if err != nil {
-        t.Fatalf("tempfile: %v", err)
-    }
-    if _, err := tmp.WriteString(content); err != nil {
-        t.Fatalf("write tmp: %v", err)
-    }
-    if err := tmp.Close(); err != nil {
-        t.Fatalf("close tmp: %v", err)
-    }
-    return tmp.Name(), func() { os.Remove(tmp.Name()) }
+	t.Helper()
+	tmp, err := ioutil.TempFile("", "tpl*.txt")
+	if err != nil {
+		t.Fatalf("tempfile: %v", err)
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write tmp: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close tmp: %v", err)
+	}
+	return tmp.Name(), func() { os.Remove(tmp.Name()) }
 }
 
 // TestNewTemplateFromFile_FileNotFound ensures that the function correctly wraps os.Open errors.
 func TestNewTemplateFromFile_FileNotFound(t *testing.T) {
-    t.Parallel()
-    fakePath := filepath.Join(os.TempDir(), "definitely‑not‑exist‑12345.txt")
-    _, err := NewTemplateFromFile(fakePath)
-    if err == nil {
-        t.Fatal("expected error for missing file")
-    }
-    // The wrapped error must preserve os.ErrNotExist.
-    if !errors.Is(err, os.ErrNotExist) {
-        t.Fatalf("expected not‑exist error, got: %v", err)
-    }
-    if !strings.Contains(err.Error(), fakePath) {
-        t.Errorf("error message should contain the file path; got %v", err)
-    }
+	t.Parallel()
+	fakePath := filepath.Join(os.TempDir(), "definitely‑not‑exist‑12345.txt")
+	_, err := NewTemplateFromFile(fakePath)
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	// The wrapped error must preserve os.ErrNotExist.
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected not‑exist error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), fakePath) {
+		t.Errorf("error message should contain the file path; got %v", err)
+	}
 }
 
 // TestNewTemplateFromFile_EmptyFile checks the branch that reports "Can't find any entry".
 func TestNewTemplateFromFile_EmptyFile(t *testing.T) {
-    t.Parallel()
-    path, cleanup := createTempFile(t, "# just a comment\n\n   \n")
-    defer cleanup()
+	t.Parallel()
+	path, cleanup := createTempFile(t, "# just a comment\n\n   \n")
+	defer cleanup()
 
-    _, err := NewTemplateFromFile(path)
-    if err == nil {
-        t.Fatal("expected error for file with no entries")
-    }
-    if !strings.Contains(err.Error(), "Can't find any entry") {
-        t.Errorf("unexpected error message: %v", err)
-    }
+	_, err := NewTemplateFromFile(path)
+	if err == nil {
+		t.Fatal("expected error for file with no entries")
+	}
+	if !strings.Contains(err.Error(), "Can't find any entry") {
+		t.Errorf("unexpected error message: %v", err)
+	}
 }
 
 // TestNewTemplateFromFile_InvalidLineNumber validates error wrapping and accurate line numbers.
 func TestNewTemplateFromFile_InvalidLineNumber(t *testing.T) {
-    t.Parallel()
-    content := "valid.com NXDOMAIN\ninvalid.com AAAA=::1\n"
-    path, cleanup := createTempFile(t, content)
-    defer cleanup()
+	t.Parallel()
+	content := "valid.com NXDOMAIN\ninvalid.com AAAA=::1\n"
+	path, cleanup := createTempFile(t, content)
+	defer cleanup()
 
-    _, err := NewTemplateFromFile(path)
-    if err == nil {
-        t.Fatal("expected parsing error")
-    }
-    if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "line 2") {
-        t.Errorf("error should include path and line 2; got %v", err)
-    }
+	_, err := NewTemplateFromFile(path)
+	if err == nil {
+		t.Fatal("expected parsing error")
+	}
+	if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "line 2") {
+		t.Errorf("error should include path and line 2; got %v", err)
+	}
 }
 
 // TestNewTemplateFromFile_ValidComplex explores a realistic file with comments, blank lines, globs and multiple alternatives.
 func TestNewTemplateFromFile_ValidComplex(t *testing.T) {
-    t.Parallel()
-    complex := `
+	t.Parallel()
+	complex := `
     # initial blank lines and comments should be ignored
 
 
@@ -285,28 +284,28 @@ func TestNewTemplateFromFile_ValidComplex(t *testing.T) {
     wildcard.com  A=192.168.*.*  || SERVFAIL
     `
 
-    path, cleanup := createTempFile(t, complex)
-    defer cleanup()
+	path, cleanup := createTempFile(t, complex)
+	defer cleanup()
 
-    tpl, err := NewTemplateFromFile(path)
-    if err != nil {
-        t.Fatalf("unexpected error: %v", err)
-    }
-    if len(tpl) != 3 {
-        t.Fatalf("expected 3 parsed entries, got %d", len(tpl))
-    }
+	tpl, err := NewTemplateFromFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tpl) != 3 {
+		t.Fatalf("expected 3 parsed entries, got %d", len(tpl))
+	}
 
-    domains := []string{tpl[0].Domain, tpl[1].Domain, tpl[2].Domain}
-    expected := []string{"example.net", "test.invalid", "wildcard.com"}
-    for i, exp := range expected {
-        if domains[i] != exp {
-            t.Errorf("entry %d domain mismatch: want %q got %q", i, exp, domains[i])
-        }
-    }
-    if l := len(tpl[0].ValidAnswers); l != 2 {
-        t.Errorf("first entry expected 2 alternatives, got %d", l)
-    }
-    if l := len(tpl[2].ValidAnswers); l != 2 {
-        t.Errorf("third entry expected 2 alternatives, got %d", l)
-    }
+	domains := []string{tpl[0].Domain, tpl[1].Domain, tpl[2].Domain}
+	expected := []string{"example.net", "test.invalid", "wildcard.com"}
+	for i, exp := range expected {
+		if domains[i] != exp {
+			t.Errorf("entry %d domain mismatch: want %q got %q", i, exp, domains[i])
+		}
+	}
+	if l := len(tpl[0].ValidAnswers); l != 2 {
+		t.Errorf("first entry expected 2 alternatives, got %d", l)
+	}
+	if l := len(tpl[2].ValidAnswers); l != 2 {
+		t.Errorf("third entry expected 2 alternatives, got %d", l)
+	}
 }

@@ -1,23 +1,21 @@
 package report
 
 import (
-	"os"
 	"io"
+	"os"
 	"time"
 )
-
 
 /* ------------------------------------------------------------------ */
 /* IOFiles ---------------------------------------------------------- */
 /* ------------------------------------------------------------------ */
 
 type IOFiles struct {
-	TTYFile		*os.File
-	OutputFile	io.Writer
-	VerboseFile	io.Writer
-	DebugFile	io.Writer
+	TTYFile     *os.File
+	OutputFile  io.Writer
+	VerboseFile io.Writer
+	DebugFile   io.Writer
 }
-
 
 /* ------------------------------------------------------------------ */
 /* MetricGauge ------------------------------------------------------ */
@@ -26,11 +24,11 @@ type IOFiles struct {
 // MetricGauge tracks an integer metric (current, peak, average).
 // Not concurrency-safe.
 type MetricGauge struct {
-	Max       int   // optional: theoretical max
-	Current   int   // last recorded value
-	Peak      int   // highest ever recorded value
-	totalSum  int64 // sum of all values logged
-	nSamples  int64 // number of calls to Log()
+	Max      int   // optional: theoretical max
+	Current  int   // last recorded value
+	Peak     int   // highest ever recorded value
+	totalSum int64 // sum of all values logged
+	nSamples int64 // number of calls to Log()
 }
 
 // Log records one sample and updates Peak / average.
@@ -133,5 +131,5 @@ func (r *RequestsLogger) OneSecAvg() int {
 	if elapsedUs <= 0 {
 		return 0
 	}
-	return int(0.5 + (float64(r.Total() * 1_000_000) / float64(elapsedUs)))
+	return int(0.5 + (float64(r.Total()*1_000_000) / float64(elapsedUs)))
 }

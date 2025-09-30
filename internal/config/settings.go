@@ -6,16 +6,16 @@ import (
 
 type Settings struct {
 	// global
-	ServerIPs			[]string
-	Template			dns.Template
-	MaxThreads			int
-	MaxPoolSize			int
-	GlobRateLimit		int
+	ServerIPs     []string
+	Template      dns.Template
+	MaxThreads    int
+	MaxPoolSize   int
+	GlobRateLimit int
 	// per server
-	PerSrvRateLimit		float64
-	PerSrvMaxFailures	int
+	PerSrvRateLimit   float64
+	PerSrvMaxFailures int
 	// per check
-	PerCheckMaxAttempts	int
+	PerCheckMaxAttempts int
 	// per dns query
-	PerQueryTimeout		int
+	PerQueryTimeout int
 }

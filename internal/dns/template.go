@@ -1,23 +1,21 @@
 package dns
 
 import (
-	"fmt"
-	"strings"
+	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"os"
-	"bufio"
+	"strings"
 )
-
 
 // --------------------------------------------------------------------
 // TemplateEntry (single template line/entry)
 // --------------------------------------------------------------------
 type TemplateEntry struct {
-	Domain			string
-	ValidAnswers	[]DNSAnswerData
+	Domain       string
+	ValidAnswers []DNSAnswerData
 }
-
 
 // NewTemplateEntry() creates a new TemplateEntry from string
 func NewTemplateEntry(line string) (*TemplateEntry, error) {
@@ -33,7 +31,7 @@ func NewTemplateEntry(line string) (*TemplateEntry, error) {
 	te := &TemplateEntry{Domain: domain}
 
 	// 3) For each alternative separated by "||", build a DNSAnswerData.
-	for _, alt := range strings.Split(remainder, "||" ) {
+	for _, alt := range strings.Split(remainder, "||") {
 		answer, err := NewDNSAnswerData(strings.TrimSpace(alt))
 		if err != nil {
 			return nil, err
@@ -43,7 +41,6 @@ func NewTemplateEntry(line string) (*TemplateEntry, error) {
 	return te, nil
 }
 
-
 func (te *TemplateEntry) ToString() string {
 	altList := []string{}
 	for _, dad := range te.ValidAnswers {
@@ -52,22 +49,19 @@ func (te *TemplateEntry) ToString() string {
 	return te.Domain + " " + strings.Join(altList, " || ")
 }
 
-
 // TemplateEntry.Matches() compares itself to a DNSAnswer
 func (te *TemplateEntry) Matches(da *DNSAnswer) bool {
 	if te != nil && da != nil && te.Domain == da.Domain {
 		for _, choice := range te.ValidAnswers {
-			if
-			choice.Status == da.Status &&
-			matchRecords(choice.A, da.A) &&
-			matchRecords(choice.CNAME, da.CNAME) {
+			if choice.Status == da.Status &&
+				matchRecords(choice.A, da.A) &&
+				matchRecords(choice.CNAME, da.CNAME) {
 				return true
 			}
 		}
 	}
 	return false
 }
-
 
 // matchRecords compares two slices of records using glob matching
 // Returns true if each record in patterns matches exactly one
@@ -105,7 +99,6 @@ func matchRecords(patterns, values []string) bool {
 	return false
 }
 
-
 // nextPermutation generates the next lexicographic permutation of the slice
 // Returns false if there are no more permutations
 func nextPermutation(p []int) bool {
@@ -131,7 +124,6 @@ func nextPermutation(p []int) bool {
 	return true
 }
 
-
 // globMatch compares a pattern with a value using glob matching
 // Returns true if the value matches the pattern
 // fmt.Println(globMatch("192.168.*.*", "192.168.1.1")) // true
@@ -143,7 +135,7 @@ func nextPermutation(p []int) bool {
 // fmt.Println(globMatch("*.example.com", "sub.test.com")) // false
 func globMatch(pattern, str string) bool {
 	pattern = strings.ToLower(pattern) // case insensitive
-	str = strings.ToLower(str) // case insensitive
+	str = strings.ToLower(str)         // case insensitive
 	if !strings.ContainsRune(pattern, '*') {
 		return pattern == str // most common case (no glob)
 	}
@@ -177,7 +169,6 @@ func globMatch(pattern, str string) bool {
 	}
 	return true
 }
-
 
 // --------------------------------------------------------------------
 // Template (list of template entries)
@@ -237,8 +228,8 @@ func NewTemplate(content string) (Template, error) {
 // loadTemplate reads template entries from a reader,
 // using wrapErr to format line-specific errors
 func loadTemplate(
-	r							io.Reader,
-	wrapErr func(error, int)	error,
+	r io.Reader,
+	wrapErr func(error, int) error,
 ) (Template, error) {
 	var tpl Template
 	scanner := bufio.NewScanner(r)

@@ -40,12 +40,12 @@ func NewDNSAnswerData(data string) (*DNSAnswerData, error) {
 	if len(tokens) == 1 {
 		switch tokens[0] {
 		case
-		"TIMEOUT",
-		"NOERROR",
-		"FORMERR",
-		"NOTIMP",
-		"NXDOMAIN",
-		"SERVFAIL":
+			"TIMEOUT",
+			"NOERROR",
+			"FORMERR",
+			"NOTIMP",
+			"NXDOMAIN",
+			"SERVFAIL":
 			dad.Status = tokens[0]
 			return dad, nil
 		default:

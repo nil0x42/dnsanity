@@ -7,33 +7,33 @@ import (
 // ServerPool streams huge resolver lists in small batches to save memory.
 // All methods are single-goroutine – no mutex needed.
 type ServerPool struct {
-	template    dns.Template               // checks
+	template dns.Template // checks
 
-	queue       []string                   // IPs still to load
-	dequeueIdx  int                        // next server idx to dequeue
+	queue      []string // IPs still to load
+	dequeueIdx int      // next server idx to dequeue
 
-	pool        map[int]*dns.ServerContext // srvID ➜ *ServerContext
-	nextSlot    int                        // srvID generator
-	maxPoolSz   int                        // maximum pool size
+	pool      map[int]*dns.ServerContext // srvID ➜ *ServerContext
+	nextSlot  int                        // srvID generator
+	maxPoolSz int                        // maximum pool size
 
-	maxAttempts int                        // needed to build ServerContext
+	maxAttempts int // needed to build ServerContext
 }
 
 /* construction ----------------------------------------------------------- */
 
 // NewServerPool
 func NewServerPool(
-	maxPoolSz   int,
-	serverIPs   []string,
-	template    dns.Template,
+	maxPoolSz int,
+	serverIPs []string,
+	template dns.Template,
 	maxAttempts int,
 ) *ServerPool {
 	sp := &ServerPool{
-		template:        template,
-		queue:           serverIPs,
-		pool:            make(map[int]*dns.ServerContext),
-		maxPoolSz:       maxPoolSz,
-		maxAttempts:     maxAttempts,
+		template:    template,
+		queue:       serverIPs,
+		pool:        make(map[int]*dns.ServerContext),
+		maxPoolSz:   maxPoolSz,
+		maxAttempts: maxAttempts,
 	}
 	return sp
 }
@@ -59,7 +59,7 @@ func (sp *ServerPool) LoadN(n int) int {
 // Get returns the *ServerContext associated to the slot
 func (sp *ServerPool) Get(slot int) (*dns.ServerContext, bool) {
 	srv, ok := sp.pool[slot]
-    return srv, ok
+	return srv, ok
 }
 
 // Unload removes a finished ServerContext; if not Disabled, records its IP.

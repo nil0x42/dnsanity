@@ -1,50 +1,50 @@
 package dns
 
 import (
-	"time"
 	"context"
 	"fmt"
+	"time"
 )
 
 type CheckContext struct {
-	Answer              *DNSAnswer      // last received answer
-	Passed              bool           // last attempt result
-	AttemptsLeft        int            // retries remaining
-	MaxAttempts         int            // immutable upper bound
+	Answer       *DNSAnswer // last received answer
+	Passed       bool       // last attempt result
+	AttemptsLeft int        // retries remaining
+	MaxAttempts  int        // immutable upper bound
 }
 
 type ServerContext struct {
-	Ctx                 context.Context
-    CancelCtx           context.CancelFunc
-	Disabled            bool           // true if reaches maxFailures
+	Ctx       context.Context
+	CancelCtx context.CancelFunc
+	Disabled  bool // true if reaches maxFailures
 
-	IPAddress           string         // resolver IPv4
-	FailedCount         int            // failed checks.
-	CompletedCount      int            // finished checks (pass+fail)
-	NextQueryAt         time.Time      // honour per-server rps
-	PendingChecks       []int          // queue of remaining check indexes
-	Checks              []CheckContext // answers log
+	IPAddress      string         // resolver IPv4
+	FailedCount    int            // failed checks.
+	CompletedCount int            // finished checks (pass+fail)
+	NextQueryAt    time.Time      // honour per-server rps
+	PendingChecks  []int          // queue of remaining check indexes
+	Checks         []CheckContext // answers log
 }
 
 func NewServerContext(
-	ipAddress	string,
-	template	Template,
-	maxAttempts	int, // max attempts per check
+	ipAddress string,
+	template Template,
+	maxAttempts int, // max attempts per check
 ) *ServerContext {
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	sc := &ServerContext{
-		Ctx:			ctx,
-		CancelCtx:		cancelCtx,
-		IPAddress:      ipAddress,
-		PendingChecks:  make([]int, len(template)),
-		Checks:         make([]CheckContext, len(template)),
+		Ctx:           ctx,
+		CancelCtx:     cancelCtx,
+		IPAddress:     ipAddress,
+		PendingChecks: make([]int, len(template)),
+		Checks:        make([]CheckContext, len(template)),
 	}
 	for i := range template {
 		sc.PendingChecks[i] = i
 		sc.Checks[i].AttemptsLeft = maxAttempts
 		sc.Checks[i].MaxAttempts = maxAttempts
 		sc.Checks[i].Answer = &DNSAnswer{
-			Domain: template[i].Domain,
+			Domain:        template[i].Domain,
 			DNSAnswerData: DNSAnswerData{Status: "SKIPPED"},
 		}
 	}

@@ -3,13 +3,13 @@ package tty
 import (
 	// standard
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sync"
-	"io"
 
 	"golang.org/x/sys/unix"
-    "golang.org/x/term"
+	"golang.org/x/term"
 )
 
 // stripAnsiRegex removes ANSI escape sequences (colors, cursor movements, etc.).
@@ -21,34 +21,33 @@ var stripAnsiRegex = regexp.MustCompile(
 // avoiding repeated system calls.
 var cacheIsTTY sync.Map // Key = file descriptor (uintptr), Value = bool
 
-
 // IsTTY returns whether the given writer is a terminal.
 // The result is cached to prevent repeated checks.
 func IsTTY(w io.Writer) bool {
-    f, ok := w.(*os.File)
-    if !ok {
-        return false
-    }
-    fd := f.Fd()
-    if v, loaded := cacheIsTTY.Load(fd); loaded {
-        return v.(bool)
-    }
-    isTerm := term.IsTerminal(int(fd))
-    cacheIsTTY.Store(fd, isTerm)
-    return isTerm
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fd := f.Fd()
+	if v, loaded := cacheIsTTY.Load(fd); loaded {
+		return v.(bool)
+	}
+	isTerm := term.IsTerminal(int(fd))
+	cacheIsTTY.Store(fd, isTerm)
+	return isTerm
 }
 
 func OpenTTY() *os.File {
-    fd, err := unix.Open("/dev/tty", unix.O_WRONLY|unix.O_NONBLOCK, 0)
-    if err != nil {
-        return nil
-    }
+	fd, err := unix.Open("/dev/tty", unix.O_WRONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil
+	}
 	tty := os.NewFile(uintptr(fd), "/dev/tty")
 	if !IsTTY(tty) {
-        tty.Close()
-        return nil
-    }
-    return tty
+		tty.Close()
+		return nil
+	}
+	return tty
 }
 
 // StripAnsi removes all ANSI escape sequences from a string.

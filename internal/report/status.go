@@ -1,17 +1,17 @@
 package report
 
 import (
-	"sync"
-	"fmt"
-	"strings"
-	"math"
-	"time"
-	"io"
 	"bytes"
+	"fmt"
+	"io"
+	"math"
+	"strings"
+	"sync"
+	"time"
 
-	"github.com/nil0x42/dnsanity/internal/tty"
-	"github.com/nil0x42/dnsanity/internal/dns"
 	"github.com/nil0x42/dnsanity/internal/config"
+	"github.com/nil0x42/dnsanity/internal/dns"
+	"github.com/nil0x42/dnsanity/internal/tty"
 )
 
 var SPINNER = [][]rune{
@@ -43,31 +43,30 @@ var SPINNER = [][]rune{
 
 type StatusReporter struct {
 	// Plumbing:
-	mu						sync.Mutex
-	io						*IOFiles
-	quit					chan struct{}
-	redrawTicker			*time.Ticker
+	mu           sync.Mutex
+	io           *IOFiles
+	quit         chan struct{}
+	redrawTicker *time.Ticker
 	// Display:
-	pBarTemplate			string // progress bar fmt string template
-	pBarEraser				string // ANSI sequence to 'erase' current pbar
-	cacheStr				string // cached data to display @ next redraw
-	spinnerFrame			int    // current spinner frame
-	verboseFileHdr			string // printed once before 1st debugFile write
+	pBarTemplate   string // progress bar fmt string template
+	pBarEraser     string // ANSI sequence to 'erase' current pbar
+	cacheStr       string // cached data to display @ next redraw
+	spinnerFrame   int    // current spinner frame
+	verboseFileHdr string // printed once before 1st debugFile write
 	// Servers Status:
-	TotalServers			int
-	ValidServers			int
-	InvalidServers			int
-	ServersWithFailures		int
-    // Checks Status:
-	TotalChecks				int
-	DoneChecks				int
+	TotalServers        int
+	ValidServers        int
+	InvalidServers      int
+	ServersWithFailures int
+	// Checks Status:
+	TotalChecks int
+	DoneChecks  int
 	// MISC:
-	StartTime				time.Time
-	Requests				RequestsLogger // requests tracking
-	PoolSize				MetricGauge    // pool tracking
-	BusyJobs				MetricGauge    // jobs tracking
+	StartTime time.Time
+	Requests  RequestsLogger // requests tracking
+	PoolSize  MetricGauge    // pool tracking
+	BusyJobs  MetricGauge    // jobs tracking
 }
-
 
 /* ------------------------------------------------------------------ */
 /* CONSTRUCTOR ------------------------------------------------------ */
@@ -90,13 +89,13 @@ func NewStatusReporter(
 		return strings.TrimRight(strings.TrimRight(s, "0"), ".")
 	}
 	pBarTemplate := fmt.Sprintf(
-		"\n" +
-		"\033[1;97m* %-30s\033[2;37m%%10s - %%s\n" +
-		"%%c Run: %d servers * %d tests, max %d req/s, %d jobs (%%d busy)\n" +
-		"%%c Per server: %s req/s, %s (%%d in pool)\n" +
-		"%%c Per test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n" +
-		"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n" +
-		"%%c │%%s\033[2;37m│\033[0m",
+		"\n"+
+			"\033[1;97m* %-30s\033[2;37m%%10s - %%s\n"+
+			"%%c Run: %d servers * %d tests, max %d req/s, %d jobs (%%d busy)\n"+
+			"%%c Per server: %s req/s, %s (%%d in pool)\n"+
+			"%%c Per test: %ds timeout, up to %d attempts -> %%d%%%% done (%%d/%%d)\n"+
+			"%%c │\033[32m%%-22s\033[2;37m%%6d req/s\033[31m%%26s\033[2;37m│\n"+
+			"%%c │%%s\033[2;37m│\033[0m",
 		// line 0: title
 		title,
 		// line 1: Run: ? servers * ? tests ...
@@ -108,29 +107,28 @@ func NewStatusReporter(
 		set.PerQueryTimeout, set.PerCheckMaxAttempts,
 	)
 	s := &StatusReporter{
-		io:				ioFiles,
-		quit:			make(chan struct{}),
-		redrawTicker:	time.NewTicker(time.Millisecond * 250),
+		io:           ioFiles,
+		quit:         make(chan struct{}),
+		redrawTicker: time.NewTicker(time.Millisecond * 250),
 
-		pBarTemplate:	pBarTemplate,
-		verboseFileHdr:	set.Template.PrettyDump(),
+		pBarTemplate:   pBarTemplate,
+		verboseFileHdr: set.Template.PrettyDump(),
 
-		TotalServers:	len(set.ServerIPs),
-		TotalChecks:	len(set.ServerIPs) * len(set.Template),
-		StartTime:		time.Now(),
-		Requests:		RequestsLogger{StartTime: time.Now()},
-		PoolSize:		MetricGauge{Max: set.MaxPoolSize},
-		BusyJobs:		MetricGauge{Max: set.MaxThreads},
+		TotalServers: len(set.ServerIPs),
+		TotalChecks:  len(set.ServerIPs) * len(set.Template),
+		StartTime:    time.Now(),
+		Requests:     RequestsLogger{StartTime: time.Now()},
+		PoolSize:     MetricGauge{Max: set.MaxPoolSize},
+		BusyJobs:     MetricGauge{Max: set.MaxThreads},
 	}
-	pBarNLines := strings.Count(s.renderDebugBar() + pBarTemplate, "\n")
+	pBarNLines := strings.Count(s.renderDebugBar()+pBarTemplate, "\n")
 	s.pBarEraser = "\r\033[2K" + strings.Repeat("\033[1A\033[2K", pBarNLines)
-	if (s.hasPBar()) {
+	if s.hasPBar() {
 		s.io.TTYFile.WriteString(s.renderPBar())
 		go s.loop()
 	}
 	return s
 }
-
 
 /* ------------------------------------------------------------------ */
 /* PUBLIC API ------------------------------------------------------- */
@@ -186,7 +184,7 @@ func (s *StatusReporter) ReportFinishedServer(srv *dns.ServerContext) {
 		if s.verboseFileHdr == "" {
 			s.fWrite(s.io.VerboseFile, srv.PrettyDump())
 		} else { // hdr is only printed once, before 1st write to verboseFile
-			s.fWrite(s.io.VerboseFile, s.verboseFileHdr + srv.PrettyDump())
+			s.fWrite(s.io.VerboseFile, s.verboseFileHdr+srv.PrettyDump())
 			s.verboseFileHdr = ""
 		}
 	}
@@ -210,13 +208,12 @@ func (s *StatusReporter) Debug(format string, args ...interface{}) {
 func (s *StatusReporter) Stop() {
 	close(s.quit)
 	s.redrawTicker.Stop()
-	if (s.hasPBar()) {
+	if s.hasPBar() {
 		s.io.TTYFile.WriteString(
 			s.pBarEraser + s.cacheStr + s.renderPBar() + "\n\n")
 		s.cacheStr = ""
 	}
 }
-
 
 /* ------------------------------------------------------------------ */
 /* INTERNAL UTILS --------------------------------------------------- */
@@ -260,7 +257,7 @@ func (s *StatusReporter) doneServers() int {
 }
 
 // fWrite outputs str to file (or caches) while handling TTY/ANSI.
-func (s *StatusReporter) fWrite(file io.Writer, str string){
+func (s *StatusReporter) fWrite(file io.Writer, str string) {
 	if file == nil {
 		return
 	}
@@ -286,25 +283,24 @@ func scaleValue(value, total, scale int) float64 {
 	return float64(scale) * (float64(value) / float64(total))
 }
 
-
 /* ------------------------------------------------------------------ */
 /* INTERNAL RENDERING ----------------------------------------------- */
 /* ------------------------------------------------------------------ */
 
 // renderElapsedTime returns elapsed-time string in d h / h m / m s / s.
 func (s *StatusReporter) renderElapsedTime() string {
-    sec := int(time.Since(s.StartTime).Seconds())
-    const D, H, M = 86400, 3600, 60
-    switch {
-    case sec >= D:
-        return fmt.Sprintf("⏳%dd %dh", sec/D, (sec%D)/H)
-    case sec >= H:
-        return fmt.Sprintf("⏳%dh %dm", sec/H, (sec%H)/M)
-    case sec >= M:
-        return fmt.Sprintf("⏳%dm %ds", sec/M, sec%M)
-    default:
-        return fmt.Sprintf("⏳%ds", sec)
-    }
+	sec := int(time.Since(s.StartTime).Seconds())
+	const D, H, M = 86400, 3600, 60
+	switch {
+	case sec >= D:
+		return fmt.Sprintf("⏳%dd %dh", sec/D, (sec%D)/H)
+	case sec >= H:
+		return fmt.Sprintf("⏳%dh %dm", sec/H, (sec%H)/M)
+	case sec >= M:
+		return fmt.Sprintf("⏳%dm %ds", sec/M, sec%M)
+	default:
+		return fmt.Sprintf("⏳%ds", sec)
+	}
 }
 
 // renderRemainingTime returns "DONE" or a brief human-readable ETA.
@@ -320,9 +316,9 @@ func (s *StatusReporter) renderRemainingTime() string {
 	if progress < 0.001 {
 		return "ETA: --"
 	}
-    const D, H, M = 86400, 3600, 60
+	const D, H, M = 86400, 3600, 60
 	elapsed := time.Since(s.StartTime)
-	remain  := time.Duration(float64(elapsed)*(1/progress - 1))
+	remain := time.Duration(float64(elapsed) * (1/progress - 1))
 	switch sec := int(remain.Seconds()); {
 	case sec < M:
 		return "ETA: <1m"
@@ -339,18 +335,18 @@ func (s *StatusReporter) renderRemainingTime() string {
 // red invalid blocks right, rune-aligned and auto-trimmed to fit.
 func (s *StatusReporter) renderBrailleBar() string {
 	const (
-		ptsPerChr = 8   // full Braille block (⣿) = 8 pts
-		totalChrs = 60  // fixed bar width in runes
+		ptsPerChr = 8  // full Braille block (⣿) = 8 pts
+		totalChrs = 60 // fixed bar width in runes
 	)
-	totalPts   := totalChrs * ptsPerChr
-	validPts   := int(math.Round(scaleValue(
+	totalPts := totalChrs * ptsPerChr
+	validPts := int(math.Round(scaleValue(
 		s.ValidServers, s.TotalServers, totalPts)))
 	invalidPts := int(math.Round(scaleValue(
 		s.InvalidServers, s.TotalServers, totalPts)))
 
 	// --- helpers to build runes for each side -----------------------------
 	buildLeft := func(pts int) []rune {
-		full, extra := pts / ptsPerChr, pts % ptsPerChr
+		full, extra := pts/ptsPerChr, pts%ptsPerChr
 		bar := make([]rune, 0, full+1)
 		for i := 0; i < full; i++ {
 			bar = append(bar, '⣿')
@@ -361,7 +357,7 @@ func (s *StatusReporter) renderBrailleBar() string {
 		return bar
 	}
 	buildRight := func(pts int) []rune {
-		full, extra := pts / ptsPerChr, pts % ptsPerChr
+		full, extra := pts/ptsPerChr, pts%ptsPerChr
 		bar := make([]rune, 0, full+1)
 		if extra > 0 {
 			bar = append(bar, []rune("⠈⠘⠸⢸⢹⢻⢿")[extra-1])
@@ -371,13 +367,13 @@ func (s *StatusReporter) renderBrailleBar() string {
 		}
 		return bar
 	}
-	validRunes   := buildLeft(validPts)
+	validRunes := buildLeft(validPts)
 	invalidRunes := buildRight(invalidPts)
-	extraValid   := validPts   % ptsPerChr
+	extraValid := validPts % ptsPerChr
 	extraInvalid := invalidPts % ptsPerChr
 
 	// --- overflow correction (rune‑level) ---------------------------------
-	if len(validRunes) + len(invalidRunes) > totalChrs {
+	if len(validRunes)+len(invalidRunes) > totalChrs {
 		switch {
 		case len(validRunes) == 1: // if valid is single rune, trim invalid
 			invalidRunes = invalidRunes[1:]
@@ -435,7 +431,7 @@ func (s *StatusReporter) renderPBar() string {
 		SPINNER[s.spinnerFrame][4],
 		s.renderBrailleBar(),
 	)
-	if (s.hasDebug()) {
+	if s.hasDebug() {
 		return s.renderDebugBar() + pBar
 	}
 	return pBar
@@ -447,10 +443,10 @@ func (s *StatusReporter) renderDebugBar() string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"\n\033[33m" +
-		"* [jobs] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n" +
-		"* [pool] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n" +
-		"* [reqs] cur:%-7d peak:%-7d avg:%-7d all:%-7d idle:%-7d busy:%-7d",
+		"\n\033[33m"+
+			"* [jobs] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n"+
+			"* [pool] cur:%-7d peak:%-7d avg:%-7d max:%-7d\n"+
+			"* [reqs] cur:%-7d peak:%-7d avg:%-7d all:%-7d idle:%-7d busy:%-7d",
 		// line 1: [jobs]
 		s.BusyJobs.Current, s.BusyJobs.Peak,
 		s.BusyJobs.Avg(), s.BusyJobs.Max,

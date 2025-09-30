@@ -2,15 +2,14 @@ package config
 
 import (
 	// standard
-	"os"
-	"fmt"
 	"flag"
+	"fmt"
+	"os"
 	// external
 	// local
 	"github.com/nil0x42/dnsanity/internal/dns"
 	"github.com/nil0x42/dnsanity/internal/tty"
 )
-
 
 type Config struct {
 	Opts             *Options
@@ -20,14 +19,12 @@ type Config struct {
 	OutputFile       *os.File
 }
 
-
 func exitUsage(format string, a ...interface{}) {
 	err := fmt.Errorf(format, a...)
 	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 	flag.Usage()
 	os.Exit(1)
 }
-
 
 func Init() *Config {
 	conf := &Config{}
@@ -121,15 +118,13 @@ func Init() *Config {
 		exitUsage("-max-poolsize: must be >= 1")
 	}
 
-
 	conf.Opts = opts
 	return conf
 }
 
-
 func OpenFile(path string) (*os.File, error) {
-    if path == "" || path == "-" || path == "/dev/stdout" {
-        return os.Stdout, nil
-    }
-    return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if path == "" || path == "-" || path == "/dev/stdout" {
+		return os.Stdout, nil
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 }
