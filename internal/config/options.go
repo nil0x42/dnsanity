@@ -133,7 +133,7 @@ func ShowHelp() {
 		"   %s-debug%s                     show debugging information (on STDERR)\n",
 		yel, rst)
 	s += fmt.Sprintf("\n")
-	tty.SmartFprintf(os.Stdout, s)
+	tty.SmartFprintf(os.Stdout, "%s", s)
 }
 
 func ShowVersion() {
