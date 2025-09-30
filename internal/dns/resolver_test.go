@@ -25,17 +25,20 @@ func TestResolveDNS(t *testing.T) {
 	t.Parallel()
 
 	// helper to make a context (possibly already cancelled)
-	mkCtx := func(cancel bool) context.Context {
+	// NOTE: We return the CancelFunc and always call it in the test body (defer),
+	// so vet won't complain about a possible context leak.
+	mkCtx := func(cancel bool) (context.Context, context.CancelFunc) {
 		ctx, cancelFn := context.WithCancel(context.Background())
 		if cancel {
+			// It's safe to call cancel multiple times; we still return it so callers can defer it.
 			cancelFn()
 		}
-		return ctx
+		return ctx, cancelFn
 	}
 
 	// NOTE: The public DNS 8.8.8.8 is used for successful lookups because it is
 	// globally reachable in the vast majority of CI environments.  Reserved
-	// documentation‑prefix addresses (RFC 5737) are leveraged to produce
+	// documentation-prefix addresses (RFC 5737) are leveraged to produce
 	// deterministic network errors without needing privileged ports or external
 	// dependencies.
 	tests := []testCase{
@@ -66,7 +69,7 @@ func TestResolveDNS(t *testing.T) {
 		{
 			name:       "Timeout",
 			domain:     "example.com",
-			server:     "192.0.2.1", // TEST‑NET‑1 (no host responds)
+			server:     "192.0.2.1", // TEST-NET-1 (no host responds)
 			timeout:    500 * time.Millisecond,
 			wantStatus: "TIMEOUT",
 		},
@@ -99,7 +102,9 @@ func TestResolveDNS(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := mkCtx(tc.cancelCtx)
+			ctx, cancel := mkCtx(tc.cancelCtx)
+			defer cancel() // always release resources
+
 			ans := ResolveDNS(tc.domain, tc.server, tc.timeout, ctx)
 
 			if !strings.Contains(ans.Status, tc.wantStatus) {
