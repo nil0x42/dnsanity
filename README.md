@@ -60,7 +60,10 @@ and reliable **concurrency**.
 - **Flexible**: Easily write your own template for custom validation.  
 - **Reliable**: Automatic template re-validation before every usage.  
 
-<a href="https://github.com/nil0x42/dnsanity/releases/latest"><img align="right" src=".github/images/demo.gif" width="75%"/></a>
+<br>
+<a href="https://github.com/nil0x42/dnsanity/releases/latest"><img align="center" src=".github/images/demo.gif" width="80%"/></a>
+<br>
+
 <br>
 
 ### :arrows_clockwise: Workflow
@@ -71,7 +74,6 @@ Run each template query against trusted DNS servers and ensure every answer matc
 **2 – Server Validation**  
 Run the same queries on every candidate server.  
 Reject any server that fails more checks than the allowed limit.
-
 
 <br>
 
