@@ -2,12 +2,17 @@ package dns
 
 import (
 	"context"
+	"errors"
 	"net"
-	"strings"
+	"syscall"
 	"time"
 
-	"github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
+	"golang.org/x/sys/unix"
 )
+
+var dnsServerPort = "53"
 
 func ResolveDNS(
 	domain string,
@@ -15,41 +20,31 @@ func ResolveDNS(
 	timeout time.Duration,
 	ctx context.Context,
 ) *DNSAnswer {
-	client := &dns.Client{
-		Timeout: timeout,
-		// UDPSize: 4096,
-	}
+	transport := dns.NewTransport()
+	transport.Dialer.Timeout = timeout
+	transport.ReadTimeout = timeout
+	transport.WriteTimeout = timeout
+	client := &dns.Client{Transport: transport}
 
-	message := &dns.Msg{}
-	message.SetEdns0(1232, false)
-	message.SetQuestion(dns.Fqdn(domain), dns.TypeA) // A record
+	message := dns.NewMsg(dnsutil.Fqdn(domain), dns.TypeA)
+	message.UDPSize = 1232
 
 	// init DNSAnswer
 	answer := &DNSAnswer{Domain: domain}
 
 	// DNS resolution
 	// net.JoinHostPort() is needed for ipv6 (bracket expansion):
-	hostAndPort := net.JoinHostPort(dnsServer, "53")
-	response, _, err := client.ExchangeContext(ctx, message, hostAndPort)
+	hostAndPort := net.JoinHostPort(dnsServer, dnsServerPort)
+	response, _, err := client.Exchange(ctx, message, "udp", hostAndPort)
 	if err != nil {
-		if strings.HasSuffix(err.Error(), "i/o timeout") {
-			answer.Status = "TIMEOUT"
-		} else if strings.HasSuffix(err.Error(), "read: connection refused") {
-			answer.Status = "ECONNREFUSED"
-		} else if strings.HasSuffix(err.Error(), "read: no route to host") {
-			answer.Status = "EHOSTUNREACH"
-		} else if strings.HasSuffix(err.Error(), "connect: network is unreachable") {
-			answer.Status = "ENETUNREACH (no internet)"
-		} else {
-			answer.Status = "ERROR - " + err.Error()
-		}
+		answer.Status = mapResolveError(err)
 	} else if response.Rcode != dns.RcodeSuccess {
 		answer.Status = dns.RcodeToString[response.Rcode]
 	} else {
 		for _, rr := range response.Answer {
 			switch record := rr.(type) {
 			case *dns.A:
-				answer.A = append(answer.A, record.A.String())
+				answer.A = append(answer.A, record.A.Addr.String())
 			case *dns.CNAME:
 				answer.CNAME = append(answer.CNAME, record.Target)
 			}
@@ -60,4 +55,47 @@ func ResolveDNS(
 		answer.Truncated = response.Truncated
 	}
 	return answer
+}
+
+func mapResolveError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "TIMEOUT"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "ERROR - " + err.Error()
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.IsTimeout {
+			return "TIMEOUT"
+		}
+		if dnsErr.IsNotFound {
+			return "ERROR - " + err.Error()
+		}
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "TIMEOUT"
+	}
+
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		if errno == 0 {
+			return "ERROR - " + err.Error()
+		}
+		if errno == syscall.ETIMEDOUT {
+			return "TIMEOUT"
+		}
+		if name := unix.ErrnoName(errno); name != "" {
+			return name
+		}
+		return errno.Error()
+	}
+
+	return "ERROR - " + err.Error()
 }

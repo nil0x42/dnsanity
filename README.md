@@ -150,7 +150,7 @@ or risking blacklisting. Here’s the core approach:
 
 - **[dnsvalidator](https://github.com/vortexau/dnsvalidator)** – for the original concept of verifying DNS resolvers.  
 - **[dnsx](https://github.com/projectdiscovery/dnsx)** – inspiration for a fast, multi-purpose DNS toolkit.  
-- **[miekg/dns](https://github.com/miekg/dns)** – the Go library powering DNSanity queries under the hood.
+- **[miekg/dns v2](https://codeberg.org/miekg/dns)** – the Go library powering DNSanity queries under the hood.
 
 ---
 
