@@ -95,27 +95,35 @@ func TestMatchRecords(t *testing.T) {
 	}
 }
 
-// TestNextPermutation enumerates all permutations of a length‑3 slice.
-func TestNextPermutation(t *testing.T) {
-	p := []int{0, 1, 2}
-	seen := map[[3]int]bool{}
-	for {
-		var key [3]int
-		copy(key[:], p)
-		if seen[key] {
-			t.Fatalf("duplicate permutation %v", p)
-		}
-		seen[key] = true
-		if !nextPermutation(p) {
-			break
-		}
+func TestMatchRecords_LargeSet(t *testing.T) {
+	patterns := []string{
+		"152.233.100.1", "152.233.100.2", "152.233.100.3", "152.233.100.4", "152.233.100.5",
+		"152.233.100.6", "152.233.100.7", "152.233.100.8", "152.233.100.9", "152.233.100.10",
+		"152.233.100.11", "152.233.100.12", "152.233.100.13", "152.233.100.14", "152.233.100.15",
 	}
-	if len(seen) != 6 {
-		t.Fatalf("expected 6 permutations, got %d", len(seen))
+	values := []string{
+		"152.233.100.15", "152.233.100.14", "152.233.100.13", "152.233.100.12", "152.233.100.11",
+		"152.233.100.10", "152.233.100.9", "152.233.100.8", "152.233.100.7", "152.233.100.6",
+		"152.233.100.5", "152.233.100.4", "152.233.100.3", "152.233.100.2", "152.233.100.1",
 	}
-	// last permutation must be descending order.
-	if got := [3]int{p[0], p[1], p[2]}; got != [3]int{2, 1, 0} {
-		t.Errorf("unexpected last permutation %v", got)
+	if !matchRecords(patterns, values) {
+		t.Fatal("expected large exact set to match")
+	}
+}
+
+func TestMatchRecords_LargeSet_MixedExactAndGlob(t *testing.T) {
+	patterns := []string{
+		"152.233.100.1", "152.233.100.2", "152.233.100.3", "152.233.100.4", "152.233.100.5",
+		"152.233.100.6", "152.233.100.7", "152.233.100.8", "152.233.100.9", "152.233.100.10",
+		"152.233.100.11", "152.233.100.12", "152.233.100.13", "152.233.100.14", "152.233.100.*",
+	}
+	values := []string{
+		"152.233.100.15", "152.233.100.14", "152.233.100.13", "152.233.100.12", "152.233.100.11",
+		"152.233.100.10", "152.233.100.9", "152.233.100.8", "152.233.100.7", "152.233.100.6",
+		"152.233.100.5", "152.233.100.4", "152.233.100.3", "152.233.100.2", "152.233.100.1",
+	}
+	if !matchRecords(patterns, values) {
+		t.Fatal("expected mixed exact+glob large set to match")
 	}
 }
 

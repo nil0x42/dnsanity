@@ -73,55 +73,85 @@ func matchRecords(patterns, values []string) bool {
 	if len(patterns) == 0 && len(values) == 0 {
 		return true // two empty slices are equal
 	}
-	// Try all possible permutations of matching patterns to values
-	perm := make([]int, len(values))
-	for i := range perm {
-		perm[i] = i
+
+	valueCounts := make(map[string]int, len(values))
+	for _, value := range values {
+		valueCounts[strings.ToLower(value)]++
 	}
-	// Try each permutation
-	for {
-		// Check if this permutation works
-		allMatch := true
-		for i, pattern := range patterns {
-			if !globMatch(pattern, values[perm[i]]) {
-				allMatch = false
-				break
+
+	// Phase 1: consume exact patterns first (no '*').
+	// This is the hot path and avoids unnecessary glob matching work.
+	globs := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(pattern)
+		if !strings.ContainsRune(pattern, '*') {
+			if valueCounts[pattern] == 0 {
+				return false
+			}
+			valueCounts[pattern]--
+			continue
+		}
+		globs = append(globs, pattern)
+	}
+
+	if len(globs) == 0 {
+		return true
+	}
+
+	// Phase 2: build the remaining values after exact matches have been consumed.
+	// Only those values are candidates for glob matching.
+	remainingValues := make([]string, 0, len(globs))
+	for value, count := range valueCounts {
+		for ; count > 0; count-- {
+			remainingValues = append(remainingValues, value)
+		}
+	}
+	if len(remainingValues) != len(globs) {
+		return false
+	}
+
+	// Phase 3: solve the glob-to-value assignment on the reduced set
+	// using bipartite matching (DFS augmenting paths).
+	adj := make([][]int, len(globs))
+	for i, pattern := range globs {
+		for j, value := range remainingValues {
+			if globMatch(pattern, value) {
+				adj[i] = append(adj[i], j)
 			}
 		}
-		if allMatch {
-			return true
+		if len(adj[i]) == 0 {
+			return false
 		}
-		// Get next permutation
-		if !nextPermutation(perm) {
-			break
+	}
+
+	valueToPattern := make([]int, len(remainingValues))
+	for i := range valueToPattern {
+		valueToPattern[i] = -1
+	}
+
+	for patternIdx := range globs {
+		visited := make([]bool, len(remainingValues))
+		if !tryAugment(patternIdx, adj, visited, valueToPattern) {
+			return false
+		}
+	}
+	return true
+}
+
+// tryAugment tries to assign one pattern node to a value node in the
+// bipartite graph, potentially rerouting existing assignments recursively.
+func tryAugment(patternIdx int, adj [][]int, visited []bool, valueToPattern []int) bool {
+	for _, valueIdx := range adj[patternIdx] {
+		if visited[valueIdx] {
+			continue
+		}
+		visited[valueIdx] = true
+		if valueToPattern[valueIdx] == -1 || tryAugment(valueToPattern[valueIdx], adj, visited, valueToPattern) {
+			valueToPattern[valueIdx] = patternIdx
+			return true
 		}
 	}
 	return false
-}
-
-// nextPermutation generates the next lexicographic permutation of the slice
-// Returns false if there are no more permutations
-func nextPermutation(p []int) bool {
-	// Find the largest index k such that p[k] < p[k+1]
-	k := len(p) - 2
-	for k >= 0 && p[k] >= p[k+1] {
-		k--
-	}
-	if k < 0 {
-		return false
-	}
-	// Find the largest index l greater than k such that p[k] < p[l]
-	l := len(p) - 1
-	for p[k] >= p[l] {
-		l--
-	}
-	// Swap p[k] and p[l]
-	p[k], p[l] = p[l], p[k]
-	// Reverse the sequence from p[k+1] up to and including the final element
-	for i, j := k+1, len(p)-1; i < j; i, j = i+1, j-1 {
-		p[i], p[j] = p[j], p[i]
-	}
-	return true
 }
 
 // globMatch compares a pattern with a value using glob matching
@@ -236,6 +266,8 @@ func loadTemplate(
 	lineNo := 1
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineNoCurrent := lineNo
+		lineNo++
 		line = strings.Split(line, "#")[0]
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -244,10 +276,9 @@ func loadTemplate(
 		// Convert to DNSAnswer
 		entry, err := NewTemplateEntry(line)
 		if err != nil {
-			return nil, wrapErr(err, lineNo)
+			return nil, wrapErr(err, lineNoCurrent)
 		}
 		tpl = append(tpl, *entry)
-		lineNo++
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
